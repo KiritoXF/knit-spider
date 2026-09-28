@@ -38,15 +38,17 @@ export async function runSelfTest() {
     L.redraw();
     return document.getElementById('symCanvas');
   };
-  /* 格块内采样（向内缩 18% 避开边缘网格线/外框）：test(r,g,b,a) 任一像素命中即真 */
-  const blockHasInk = (cv, c0, ty, wCells, hCells, test = (r, g, b, a) => a > 8) => {
+  /* 格块内采样（向内缩 18% 避开边缘网格线/外框）：test(r,g,b,a) 任一像素命中即真。
+     视口渲染下远处的块不在 canvas 上：先 reveal 滚进视口再按 blockRect 采样 */
+  const blockHasInk = async (cv, c0, ty, wCells, hCells, test = (r, g, b, a) => a > 8) => {
     if (!cv) return false;
-    const px = 28 * state.zoom;
-    const s = cv.width / (state.cols * px); // backing / CSS 像素比
-    const x = Math.round((c0 + 0.18) * px * s), y = Math.round((ty + 0.18) * px * s);
-    const w = Math.max(1, Math.round((wCells - 0.36) * px * s));
-    const h = Math.max(1, Math.round((hCells - 0.36) * px * s));
-    const d = cv.getContext('2d').getImageData(x, y, w, h).data;
+    const L = window.__symLayer;
+    L.reveal(c0, ty, wCells, hCells);
+    const rc = L.blockRect(c0, ty, wCells, hCells);
+    if (!rc) return false;
+    const scr = document.querySelector('.canvas-scroll');
+    window.__inkDebug = { c0, ty, st: scr && scr.scrollTop, sl: scr && scr.scrollLeft, rc: { ...rc } };
+    const d = cv.getContext('2d').getImageData(rc.x, rc.y, rc.w, rc.h).data;
     for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2], d[i + 3])) return true;
     return false;
   };
@@ -56,8 +58,8 @@ export async function runSelfTest() {
     applyAt(10, 5);
     const cv = await symCanvasReady();
     return state.placements.length === 1 && !!cv &&
-      blockHasInk(cv, 10, state.rows - 5, 1, 1) &&   // 该格有符号笔迹
-      !blockHasInk(cv, 0, state.rows - 1, 1, 1);     // 空白格无笔迹
+      !!(await blockHasInk(cv, 10, state.rows - 5, 1, 1)) &&   // 该格有符号笔迹
+      !(await blockHasInk(cv, 0, state.rows - 1, 1, 1));       // 空白格无笔迹
   });
   await t('jis-normalize', () => {
     // knit.svg 转换后应为 x=0.5 居中竖线，y 从 0.0909 到 0.9091
@@ -99,7 +101,7 @@ export async function runSelfTest() {
     const cv = await symCanvasReady();
     const p = state.placements[1];
     return state.placements.length === 2 && !!p && p.col === 2 && p.row === 2 &&
-      p.w === 4 && p.h === 1 && !!cv && blockHasInk(cv, 2, state.rows - 2, 4, 1);
+      p.w === 4 && p.h === 1 && !!cv && !!(await blockHasInk(cv, 2, state.rows - 2, 4, 1));
   });
   await t('oob-reject', () => {
     selectTool('c22L'); applyAt(state.cols - 1, 1); selectTool('knit');
@@ -143,7 +145,7 @@ export async function runSelfTest() {
     const p = state.placements.find(x => x.sym === id);
     return !!p && p.w === 3 && p.h === 2 &&
       !!document.querySelector('.palette-btn[data-tool="' + id + '"]') &&
-      !!cv && blockHasInk(cv, 4, state.rows - 11, 3, 2, RED_PIX);
+      !!cv && !!(await blockHasInk(cv, 4, state.rows - 11, 3, 2, RED_PIX));
   });
   await t('custom-delete-cascade', async () => {
     const id = state.customSymbols[0].id;
@@ -229,7 +231,7 @@ export async function runSelfTest() {
     const p = state.placements.find(x => x.sym === id);
     const ok = !!p && !!cv &&
       decodeURIComponent(symDataUrl(getSym(id))).includes('M0 0 C1 0 2 3 3 3') &&
-      blockHasInk(cv, 4, state.rows - 6, 3, 3, RED_PIX);
+      !!(await blockHasInk(cv, 4, state.rows - 6, 3, 3, RED_PIX));
     deleteCustom(id);
     await tick();
     return ok;
@@ -473,12 +475,15 @@ export async function runSelfTest() {
     window.__symLayer.redraw(); // 计入符号位图重绘（canvas 方案的实际渲染开销）
     const ms = performance.now() - t0;
     const cv = await symCanvasReady();
-    const inkOk = !!cv && blockHasInk(cv, 0, state.rows - 8, 8, 8);
+    const inkOk = !!cv && !!(await blockHasInk(cv, 0, state.rows - 8, 8, 8));
+    /* 视口渲染核心保证：backing 必须是视口×dpr 满分辨率（不许按世界尺寸压缩） */
+    const scr = document.querySelector('.canvas-scroll');
+    const crispOk = !!scr && cv.width >= Math.round(scr.clientWidth * (window.devicePixelRatio || 1)) - 2;
     deleteChart(idB);
     await tick();
     resetStateForTest(); // 还原干净状态
     await tick();
-    return inkOk && ms < 2000 && state.placements.length === 0;
+    return inkOk && crispOk && ms < 2000 && state.placements.length === 0;
   });
 
   await t('chart-lock', async () => {

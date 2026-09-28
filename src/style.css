@@ -170,7 +170,7 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
 #chart, #chartTop { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
 #chart { cursor: crosshair; }
 #chartTop { pointer-events: none; }
-#symCanvas { position: absolute; display: block; pointer-events: none; }
+#symCanvas { position: sticky; top: 0; left: 0; display: block; pointer-events: none; }
 .cell { pointer-events: all; }
 .rownum { cursor: pointer; user-select: none; }
 .rownum:hover { fill: #d97706; }
