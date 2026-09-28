@@ -362,8 +362,8 @@ function sanitizeChartIn(c, chosenNames) {
   chosenNames.push(name);
   return {
     id: genId('c'), name,
-    rows: Math.min(200, Math.max(4, Math.round(+c.rows) || 36)),
-    cols: Math.min(200, Math.max(4, Math.round(+c.cols) || 24)),
+    rows: Math.min(1000, Math.max(4, Math.round(+c.rows) || 36)),
+    cols: Math.min(1000, Math.max(4, Math.round(+c.cols) || 24)),
     rowStartSide: c.rowStartSide === 'left' ? 'left' : 'right',
     locked: !!c.locked,
     updatedAt: (typeof c.updatedAt === 'number' && c.updatedAt > 0) ? c.updatedAt : Date.now(),
@@ -592,8 +592,8 @@ export function importJson(text) {
 
 /* 把存档对象套到 state 上（校验 + 清理），不写 localStorage；供文件载入与撤销恢复共用 */
 function applyChartObject(s) {
-  const cols = Math.min(200, Math.max(4, Math.round(+s.cols)));
-  const rows = Math.min(200, Math.max(4, Math.round(+s.rows)));
+  const cols = Math.min(1000, Math.max(4, Math.round(+s.cols)));
+  const rows = Math.min(1000, Math.max(4, Math.round(+s.rows)));
   state.cols = cols; state.rows = rows;
   // 必须逐项拷贝：state 不能与快照/存档对象共享数组引用，
   // 否则 push 等原地修改会污染撤销历史里的快照

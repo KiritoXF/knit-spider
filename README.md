@@ -14,7 +14,7 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 - Last-changed time: shown at the right end of the tab bar. Chart-content operations (place / erase / border / annotation / column labels / grid / undo-redo) update it; non-content operations (lock/unlock, rename, favorite) do not. Saved with the archive
 
 ### Canvas
-- Grid up to 200 × 200 cells (stitches × rows), zoom 0.5 – 2.5
+- Grid up to 1000 × 1000 cells (stitches × rows), zoom 0.5 – 2.5
 - Row 1 starting side is switchable: right side (knit right-to-left) / left side (left-to-right)
 - Manual column labels, row highlighting
 - The symbol layer renders as a canvas bitmap (zero DOM nodes): large charts (e.g. 40 rows × 117 columns, 3200+ symbols) still switch and edit smoothly

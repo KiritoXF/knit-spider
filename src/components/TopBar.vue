@@ -51,8 +51,8 @@ async function onLoadJson(e) {
 }
 
 function applyResize() {
-  const cols = Math.min(200, Math.max(4, +inCols.value || state.cols));
-  const rows = Math.min(200, Math.max(4, +inRows.value || state.rows));
+  const cols = Math.min(1000, Math.max(4, +inCols.value || state.cols));
+  const rows = Math.min(1000, Math.max(4, +inRows.value || state.rows));
   inCols.value = cols; inRows.value = rows;
   resizeGrid(cols, rows);
 }
@@ -88,10 +88,10 @@ function onClear() {
       <div class="flex items-center gap-1 text-xs">
         <span>宽</span>
         <input id="inCols" v-model.number="inCols" type="number"
-          class="tb-input w-14" min="4" max="200">
+          class="tb-input w-14" min="4" max="1000">
         <span>行</span>
         <input id="inRows" v-model.number="inRows" type="number"
-          class="tb-input w-14" min="4" max="200">
+          class="tb-input w-14" min="4" max="1000">
         <button id="btnResize" class="tb-btn" @click="applyResize">应用</button>
       </div>
     </div>
