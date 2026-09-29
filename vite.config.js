@@ -7,6 +7,7 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 // 双击 file:// 即可使用，无需联网。
 export default defineConfig({
   plugins: [vue(), tailwindcss(), viteSingleFile()],
+  base: './', // GitHub Pages 子路径部署 + public/ 外置教程图必须相对引用
   build: {
     outDir: 'dist',
     rollupOptions: { input: 'knitting-chart.html' },

@@ -42,7 +42,11 @@ function fmtTime(t) {
         <h1 class="text-base font-bold">蜘蛛织毛线</h1>
         <span class="text-xs text-gray-400">{{ state.works.length }} 部作品</span>
       </div>
-      <button id="btnHomeAdd" class="tb-btn-primary" @click="onAdd">＋ 新建作品</button>
+      <div class="flex items-center gap-2">
+        <button id="btnHomeTutor" class="tb-btn" title="管理织法教程图（按符号上传图片，随作品 zip 分享）"
+          @click="ui.tutorialOpen = true">🧵 教程图</button>
+        <button id="btnHomeAdd" class="tb-btn-primary" @click="onAdd">＋ 新建作品</button>
+      </div>
     </header>
 
     <div class="home-grid">

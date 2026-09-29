@@ -1,4 +1,5 @@
 import { nextTick } from 'vue';
+import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import {
   state, resetStateForTest, labelFor, applyAt, eraseAt, commitBorder, selectTool,
   upsertCustom, deleteCustom, openEditor, closeEditor, getSym, LS_KEY,
@@ -6,10 +7,12 @@ import {
   undo, redo, histState, copySelection, deleteSelection, pasteAt, clipSel, clipBoard,
   addAnnotation, setColLabel, isChartLocked, toggleChartLocked,
   activeWork, activeChart, addChart, switchChart, renameChart, deleteChart,
-  addWork, deleteWork, serializeWork, importJson, load, save,
+  addWork, deleteWork, serializeWork, importJson, importArchive, buildWorkZip, load, save,
 } from './store.js';
+import { putTutorial, deleteTutorial, tutorialObjectUrl } from './tutorialStore.js';
 import { ui, ed } from './ui.js';
 import { chartToTextRows } from './textChart.js';
+import { tutorialUrlForGroup, tutorialUrlForSid } from './tutorials.js';
 import { SYMBOLS, PALETTE_ORDER } from './symbols.js';
 import { symDataUrl } from './util.js';
 
@@ -38,17 +41,15 @@ export async function runSelfTest() {
     L.redraw();
     return document.getElementById('symCanvas');
   };
-  /* 格块内采样（向内缩 18% 避开边缘网格线/外框）：test(r,g,b,a) 任一像素命中即真。
-     视口渲染下远处的块不在 canvas 上：先 reveal 滚进视口再按 blockRect 采样 */
-  const blockHasInk = async (cv, c0, ty, wCells, hCells, test = (r, g, b, a) => a > 8) => {
+  /* 格块内采样（向内缩 18% 避开边缘网格线/外框）：test(r,g,b,a) 任一像素命中即真 */
+  const blockHasInk = (cv, c0, ty, wCells, hCells, test = (r, g, b, a) => a > 8) => {
     if (!cv) return false;
-    const L = window.__symLayer;
-    L.reveal(c0, ty, wCells, hCells);
-    const rc = L.blockRect(c0, ty, wCells, hCells);
-    if (!rc) return false;
-    const scr = document.querySelector('.canvas-scroll');
-    window.__inkDebug = { c0, ty, st: scr && scr.scrollTop, sl: scr && scr.scrollLeft, rc: { ...rc } };
-    const d = cv.getContext('2d').getImageData(rc.x, rc.y, rc.w, rc.h).data;
+    const px = 28 * state.zoom;
+    const s = cv.width / (state.cols * px); // backing / CSS 像素比
+    const x = Math.round((c0 + 0.18) * px * s), y = Math.round((ty + 0.18) * px * s);
+    const w = Math.max(1, Math.round((wCells - 0.36) * px * s));
+    const h = Math.max(1, Math.round((hCells - 0.36) * px * s));
+    const d = cv.getContext('2d').getImageData(x, y, w, h).data;
     for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2], d[i + 3])) return true;
     return false;
   };
@@ -58,8 +59,8 @@ export async function runSelfTest() {
     applyAt(10, 5);
     const cv = await symCanvasReady();
     return state.placements.length === 1 && !!cv &&
-      !!(await blockHasInk(cv, 10, state.rows - 5, 1, 1)) &&   // 该格有符号笔迹
-      !(await blockHasInk(cv, 0, state.rows - 1, 1, 1));       // 空白格无笔迹
+      blockHasInk(cv, 10, state.rows - 5, 1, 1) &&   // 该格有符号笔迹
+      !blockHasInk(cv, 0, state.rows - 1, 1, 1);     // 空白格无笔迹
   });
   await t('jis-normalize', () => {
     // knit.svg 转换后应为 x=0.5 居中竖线，y 从 0.0909 到 0.9091
@@ -101,7 +102,7 @@ export async function runSelfTest() {
     const cv = await symCanvasReady();
     const p = state.placements[1];
     return state.placements.length === 2 && !!p && p.col === 2 && p.row === 2 &&
-      p.w === 4 && p.h === 1 && !!cv && !!(await blockHasInk(cv, 2, state.rows - 2, 4, 1));
+      p.w === 4 && p.h === 1 && !!cv && blockHasInk(cv, 2, state.rows - 2, 4, 1);
   });
   await t('oob-reject', () => {
     selectTool('c22L'); applyAt(state.cols - 1, 1); selectTool('knit');
@@ -145,7 +146,7 @@ export async function runSelfTest() {
     const p = state.placements.find(x => x.sym === id);
     return !!p && p.w === 3 && p.h === 2 &&
       !!document.querySelector('.palette-btn[data-tool="' + id + '"]') &&
-      !!cv && !!(await blockHasInk(cv, 4, state.rows - 11, 3, 2, RED_PIX));
+      !!cv && blockHasInk(cv, 4, state.rows - 11, 3, 2, RED_PIX);
   });
   await t('custom-delete-cascade', async () => {
     const id = state.customSymbols[0].id;
@@ -231,7 +232,7 @@ export async function runSelfTest() {
     const p = state.placements.find(x => x.sym === id);
     const ok = !!p && !!cv &&
       decodeURIComponent(symDataUrl(getSym(id))).includes('M0 0 C1 0 2 3 3 3') &&
-      !!(await blockHasInk(cv, 4, state.rows - 6, 3, 3, RED_PIX));
+      blockHasInk(cv, 4, state.rows - 6, 3, 3, RED_PIX);
     deleteCustom(id);
     await tick();
     return ok;
@@ -475,15 +476,12 @@ export async function runSelfTest() {
     window.__symLayer.redraw(); // 计入符号位图重绘（canvas 方案的实际渲染开销）
     const ms = performance.now() - t0;
     const cv = await symCanvasReady();
-    const inkOk = !!cv && !!(await blockHasInk(cv, 0, state.rows - 8, 8, 8));
-    /* 视口渲染核心保证：backing 必须是视口×dpr 满分辨率（不许按世界尺寸压缩） */
-    const scr = document.querySelector('.canvas-scroll');
-    const crispOk = !!scr && cv.width >= Math.round(scr.clientWidth * (window.devicePixelRatio || 1)) - 2;
+    const inkOk = !!cv && blockHasInk(cv, 0, state.rows - 8, 8, 8);
     deleteChart(idB);
     await tick();
     resetStateForTest(); // 还原干净状态
     await tick();
-    return inkOk && crispOk && ms < 2000 && state.placements.length === 0;
+    return inkOk && ms < 2000 && state.placements.length === 0;
   });
 
   await t('chart-lock', async () => {
@@ -523,9 +521,17 @@ export async function runSelfTest() {
     state.rowStartSide = 'right';
     const ok3 = rowsL[0].ws && rowsL[0].text === 'r1（反面）：1上针，1下针，1上针的扭针，3下针' &&
       !rowsL[1].ws && rowsL[1].text === 'r2：4上针，1扭针，1下针';
+    // 分组带符号 id（背景针 null），教程按 sid/名称别名解析（未配置返回 null）
+    const sidOk =
+      JSON.stringify(rows[0].groups.map(g => g.sid)) === JSON.stringify([null, 'tws', 'purl', 'knit']) &&
+      JSON.stringify(rows[1].groups.map(g => g.sid)) === JSON.stringify(['knit', 'twist', null]);
+    // c22L 已无内置教程图：未配置返回 null（本机若上传过则是 objectURL）
+    const c22 = tutorialUrlForSid('c22L');
+    const tutOk = (c22 === null || String(c22).indexOf('blob:') === 0) &&
+      tutorialUrlForGroup({ sid: null, name: '上针' }) === null; // purl 未配置教程图
     resetStateForTest();
     await tick();
-    return ok1 && ok2 && ok3;
+    return ok1 && ok2 && ok3 && sidOk && tutOk;
   });
 
   await t('chart-updated-at', async () => {
@@ -548,6 +554,33 @@ export async function runSelfTest() {
     // saved 是第二次编辑落盘的值，应等于 uEdit2；锁定切换期间不被刷新
     return typeof tCreate === 'number' && uTool === tCreate && tEdit > tCreate &&
       uLock === tEdit && uEdit2 > tEdit && saved === uEdit2;
+  });
+
+  await t('zip-roundtrip', async () => {
+    // 作品 zip 导出/导入往返：work.json + 用户教程图打包，导入后作品与教程图都还原
+    try {
+      resetStateForTest(); await tick();
+      const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+      await putTutorial('zztest', new Blob([bytes], { type: 'image/png' }), 'zztest.png');
+      const u8 = await buildWorkZip();
+      const entries = unzipSync(u8);
+      const saved = JSON.parse(strFromU8(entries['work.json']));
+      const okZip = !!entries['work.json'] && !!entries['tutorials/zztest.png'] &&
+        saved.version === 2 && saved.works.length === 1;
+      const nWorks0 = state.works.length;
+      const res = await importArchive(new Blob([u8], { type: 'application/zip' }));
+      const okImp = res.works === 1 && res.charts >= 1 && res.tutorials === 1 &&
+        state.works.length === nWorks0 + 1 &&
+        String(tutorialObjectUrl('zztest')).indexOf('blob:') === 0;
+      // 缺 work.json 的 zip 应报错
+      let okErr = false;
+      try { await importArchive(new Blob([zipSync({ 'other.txt': strToU8('x') })])); }
+      catch (e) { okErr = true; }
+      return okZip && okImp && okErr;
+    } finally {
+      await deleteTutorial('zztest'); // 清理，不污染本机教程库
+      resetStateForTest(); await tick();
+    }
   });
 
   await t('home-view-navigation', async () => {

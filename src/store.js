@@ -1,6 +1,8 @@
 import { reactive } from 'vue';
+import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { SYMBOLS, PALETTE_ORDER } from './symbols.js';
 import { ui, ed, resetEditor } from './ui.js';
+import { tutorialU8Entries, importTutorials } from './tutorialStore.js';
 
 export const LS_KEY = 'knitChartProto1';
 
@@ -362,8 +364,8 @@ function sanitizeChartIn(c, chosenNames) {
   chosenNames.push(name);
   return {
     id: genId('c'), name,
-    rows: Math.min(1000, Math.max(4, Math.round(+c.rows) || 36)),
-    cols: Math.min(1000, Math.max(4, Math.round(+c.cols) || 24)),
+    rows: Math.min(200, Math.max(4, Math.round(+c.rows) || 36)),
+    cols: Math.min(200, Math.max(4, Math.round(+c.cols) || 24)),
     rowStartSide: c.rowStartSide === 'left' ? 'left' : 'right',
     locked: !!c.locked,
     updatedAt: (typeof c.updatedAt === 'number' && c.updatedAt > 0) ? c.updatedAt : Date.now(),
@@ -531,11 +533,76 @@ async function writeFileJson(text, name) {
   anchorDownload(name, text, 'application/json');
 }
 
-/* 存档：导出整个作品（v2，含全部图解） */
+/* zip 等二进制存档另存为：与 writeFileJson 同策略（File System Access 优先，降级下载） */
+async function writeFileBlob(data, name, desc) {
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: name,
+        types: [{ description: desc, accept: { 'application/zip': ['.zip'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(data);
+      await writable.close();
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return; // 用户在对话框点了取消
+      // 其他异常落到下面的下载降级
+    }
+  }
+  anchorDownload(name, data, 'application/zip');
+}
+
+/* 存档：导出整个作品为 zip（work.json = v2 作品树 + tutorials/ = 用户上传的教程图原样） */
 export async function saveJson() {
   const w = activeWork();
-  await writeFileJson(JSON.stringify(serializeWork(), null, 2),
-    sanitizeFileName(w ? w.name : 'work') + '.json');
+  const u8 = await buildWorkZip();
+  await writeFileBlob(new Blob([u8], { type: 'application/zip' }),
+    sanitizeFileName(w ? w.name : 'work') + '.zip', '作品存档 (zip)');
+}
+
+/* zip 打包：work.json（v2 作品树，与旧 JSON 存档内容一致）+ tutorials/<文件名>。
+   供 saveJson 与自测使用；纯数据组装，不弹对话框 */
+export async function buildWorkZip() {
+  const files = { 'work.json': strToU8(JSON.stringify(serializeWork(), null, 2)) };
+  for (const t of await tutorialU8Entries()) {
+    let base = String(t.name || '').split(/[\\/]/).pop() || '';
+    if (!/^[^/\\]+\.[^/\\]+$/.test(base)) base = sanitizeFileName(t.sid) + '.png';
+    const path = 'tutorials/' + (sanitizeFileName(base) || sanitizeFileName(t.sid) + '.png');
+    files[path] = t.u8;
+  }
+  return zipSync(files);
+}
+
+/* 载入 zip 作品包：work.json 走 importJson 追加逻辑（失败即抛错，教程图不写入）；
+   tutorials/<符号id>.<ext> 写回本机教程库，无该目录不报错。返回 {works, charts, tutorials} */
+export async function importArchive(blob) {
+  let entries;
+  try {
+    entries = unzipSync(new Uint8Array(await blob.arrayBuffer()));
+  } catch (e) {
+    throw new Error('不是有效的 zip 作品包');
+  }
+  const workU8 = entries['work.json'];
+  if (!workU8) throw new Error('zip 包中缺少 work.json');
+  const res = importJson(strFromU8(workU8));
+  const tuts = [];
+  for (const path in entries) {
+    if (!/^tutorials\/[^/]+$/.test(path)) continue;
+    const u8 = entries[path];
+    if (!u8 || !u8.length) continue;
+    const base = path.slice(10);
+    const dot = base.lastIndexOf('.');
+    const ext = (dot > 0 ? base.slice(dot + 1) : 'png').toLowerCase();
+    tuts.push({
+      sid: dot > 0 ? base.slice(0, dot) : base,
+      name: base,
+      u8,
+      type: ext === 'svg' ? 'image/svg+xml' : ext === 'gif' ? 'image/gif' :
+        ext === 'webp' ? 'image/webp' : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg' : 'image/png',
+    });
+  }
+  return { ...res, tutorials: await importTutorials(tuts) };
 }
 
 /* 导出当前图解（v1 单图解格式，可被旧版工具载入） */
@@ -592,8 +659,8 @@ export function importJson(text) {
 
 /* 把存档对象套到 state 上（校验 + 清理），不写 localStorage；供文件载入与撤销恢复共用 */
 function applyChartObject(s) {
-  const cols = Math.min(1000, Math.max(4, Math.round(+s.cols)));
-  const rows = Math.min(1000, Math.max(4, Math.round(+s.rows)));
+  const cols = Math.min(200, Math.max(4, Math.round(+s.cols)));
+  const rows = Math.min(200, Math.max(4, Math.round(+s.rows)));
   state.cols = cols; state.rows = rows;
   // 必须逐项拷贝：state 不能与快照/存档对象共享数组引用，
   // 否则 push 等原地修改会污染撤销历史里的快照

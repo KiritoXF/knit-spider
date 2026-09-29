@@ -8,6 +8,7 @@ import ChartTabs from './components/ChartTabs.vue';
 import HomeView from './components/HomeView.vue';
 import EditorModal from './components/EditorModal.vue';
 import TextChartModal from './components/TextChartModal.vue';
+import TutorialModal from './components/TutorialModal.vue';
 </script>
 
 <template>
@@ -50,6 +51,7 @@ import TextChartModal from './components/TextChartModal.vue';
 
   <EditorModal v-if="ui.view === 'editor'"/>
   <TextChartModal v-if="ui.view === 'editor'"/>
+  <TutorialModal/>
 
   <!-- 切换作品/图解时的加载遮罩 -->
   <div v-if="ui.loading" class="loading-overlay">

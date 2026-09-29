@@ -6,6 +6,7 @@ export const ui = reactive({
   loading: false,    // 切换作品/图解时的全屏 loading 遮罩
   editorOpen: false,
   textChartOpen: false, // 文字解弹窗
+  tutorialOpen: false,  // 织法教程图管理弹窗（本机上传库）
 });
 
 /* 重活（切换/新建图解会触发大面积 SVG 重渲染）延后到遮罩画完再执行：

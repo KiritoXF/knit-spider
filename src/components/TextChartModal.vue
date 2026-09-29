@@ -1,27 +1,61 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { state, activeWork } from '../store.js';
 import { ui } from '../ui.js';
 import { chartToTextRows } from '../textChart.js';
+import { tutorialUrlForGroup } from '../tutorials.js';
 
 const copied = ref(false);
 let copiedTimer = null;
 
-const close = () => { ui.textChartOpen = false; };
+const close = () => { hidePop(); ui.textChartOpen = false; };
 
 const rows = computed(() => chartToTextRows(state));
 const text = computed(() => rows.value.map(x => x.text).join('\n'));
-/* 展示用：把每行拆成 {r, ws, groups:[{n, name}]}，渲染成带样式的富文本 */
-const view = computed(() => rows.value.map(x => {
-  const body = x.text.slice(x.text.indexOf('：') + 1);
-  return {
-    r: x.r, ws: x.ws,
-    groups: body ? body.split('，').map(g => {
-      const m = g.match(/^(\d+)([\s\S]*)$/);
-      return m ? { n: m[1], name: m[2] } : { n: '', name: g };
-    }) : [],
-  };
-}));
+/* 展示用：分组自带 sid（符号 id），附教程图 URL；未配置教程的名称 tut=null，悬停无感 */
+const view = computed(() => rows.value.map(x => ({
+  r: x.r, ws: x.ws,
+  groups: (x.groups || []).map(g => ({ ...g, tut: tutorialUrlForGroup(g) })),
+})));
+
+/* ---- 织法教程 popover：悬停有教程的针法名称约 300ms 后弹出 ----
+   fixed 定位（视口坐标），宽 640px 尽量大地显示教程图；下方空间不足时向上翻，
+   图框高度按剩余空间与 62vh 收缩；移入弹窗保持显示（200ms 宽限期），点击图片看原图 */
+const pop = ref(null); // { name, sid, url, left, top, ax, imgH, above }
+let popTimer = null;
+const POP_GRACE = 200;
+function hidePop() {
+  clearTimeout(popTimer);
+  popTimer = null;
+  pop.value = null;
+}
+function delayHide() {
+  clearTimeout(popTimer);
+  popTimer = setTimeout(() => { pop.value = null; }, POP_GRACE);
+}
+function onPopEnter() { clearTimeout(popTimer); }
+function onImgClick() { if (pop.value) window.open(pop.value.url, '_blank'); }
+function onNameEnter(ev, g) {
+  if (!g.tut) return;
+  const el = ev.currentTarget;
+  clearTimeout(popTimer);
+  popTimer = setTimeout(() => {
+    const W = Math.min(640, window.innerWidth - 24);
+    const vh = window.innerHeight;
+    const r = el.getBoundingClientRect();
+    const below = vh - r.bottom;
+    let top, imgH, above = false;
+    if (below >= 150) { imgH = Math.min(Math.round(vh * 0.62), below - 64); top = r.bottom + 6; }
+    else { above = true; imgH = Math.min(Math.round(vh * 0.62), Math.max(120, r.top - 70)); top = Math.max(8, r.top - 6 - imgH - 56); }
+    const left = Math.max(12, Math.min(r.left + r.width / 2 - W / 2, window.innerWidth - W - 12));
+    const ax = Math.max(12, Math.min(r.left + r.width / 2 - left - 5, W - 22));
+    pop.value = { name: g.name, sid: g.sid, url: g.tut, left, top, ax, imgH, above };
+  }, 300);
+}
+function onNameLeave() { delayHide(); }
+const onKey = e => { if (e.key === 'Escape') hidePop(); };
+onMounted(() => document.addEventListener('keydown', onKey));
+onUnmounted(() => { document.removeEventListener('keydown', onKey); hidePop(); });
 
 function flashCopied() {
   copied.value = true;
@@ -73,17 +107,32 @@ function onDownload() {
         空白格为背景针：正面织上针、反面织下针。每行读取方向与该行行号所在侧一致。
       </p>
       <div id="textChartView"
-        class="w-full h-[55vh] overflow-y-auto overflow-x-hidden border rounded p-3 bg-gray-50 space-y-1.5">
+        class="w-full h-[55vh] overflow-y-auto overflow-x-hidden border rounded p-3 bg-gray-50 space-y-1.5"
+        @scroll.passive="hidePop">
         <p v-for="row in view" :key="row.r" class="text-[13px] leading-relaxed">
           <span class="inline-block min-w-[2.4rem] font-mono font-bold"
             :class="row.ws ? 'text-pink-600' : 'text-blue-700'">r{{ row.r }}</span>
           <span v-if="row.ws"
             class="inline-block text-[10px] leading-none bg-pink-100 text-pink-600 rounded px-1 py-0.5 mr-2">反面</span>
           <span v-for="(g, i) in row.groups" :key="i" class="whitespace-normal">
-            <b class="text-gray-900">{{ g.n }}</b><span class="text-gray-700">{{ g.name }}</span><span
+            <b class="text-gray-900">{{ g.n }}</b><span class="text-gray-700" :class="{ 'tc-name-tut': g.tut }"
+              @mouseenter="onNameEnter($event, g)" @mouseleave="onNameLeave">{{ g.name }}</span><span
               v-if="i < row.groups.length - 1" class="text-gray-300">，</span>
           </span>
         </p>
+      </div>
+      <!-- 织法教程 popover：fixed 定位，Esc/滚动内容区/移开关闭；移入弹窗保持显示，点图片看原图 -->
+      <div v-if="pop" class="tc-pop" :class="{ 'tc-pop-above': pop.above }"
+        :style="{ left: pop.left + 'px', top: pop.top + 'px', '--ax': pop.ax + 'px' }"
+        @mouseenter="onPopEnter" @mouseleave="delayHide">
+        <div class="tc-pop-head">
+          <span class="tc-pop-chip">织法教程</span>
+          <span class="tc-pop-name">{{ pop.name }}</span>
+          <span v-if="pop.sid" class="tc-pop-id">{{ pop.sid }}</span>
+        </div>
+        <div class="tc-pop-imgbox" :style="{ maxHeight: pop.imgH + 'px' }">
+          <img :src="pop.url" alt="" title="点击查看原图" @click="onImgClick">
+        </div>
       </div>
       <div class="flex gap-2 pt-2 items-center">
         <button id="tcCopy" class="bg-blue-600 text-white rounded px-3 py-1" @click="onCopy">复制全文</button>

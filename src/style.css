@@ -170,7 +170,7 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
 #chart, #chartTop { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
 #chart { cursor: crosshair; }
 #chartTop { pointer-events: none; }
-#symCanvas { position: sticky; top: 0; left: 0; display: block; pointer-events: none; }
+#symCanvas { position: absolute; display: block; pointer-events: none; }
 .cell { pointer-events: all; }
 .rownum { cursor: pointer; user-select: none; }
 .rownum:hover { fill: #d97706; }
@@ -201,6 +201,39 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
 }
 .palette-btn:hover .sym-fav { opacity: 0.85; }
 .sym-fav.on { opacity: 0.95; color: #f59e0b; text-shadow: 0 0 1px #b45309; }
+
+/* 文字解织法教程：有教程的针法名称虚线下划线 + 悬停 popover */
+.tc-name-tut { cursor: help; border-bottom: 2px dotted #3b82f6; padding-bottom: 1px; }
+.tc-name-tut:hover { color: #1d4ed8; }
+.tc-pop {
+  position: fixed; z-index: 60; width: 640px; max-width: calc(100vw - 24px);
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15); padding: 8px;
+}
+.tc-pop::before {
+  content: ''; position: absolute; top: -5px; left: var(--ax, 40px);
+  width: 9px; height: 9px; background: #fff;
+  border-left: 1px solid #e5e7eb; border-top: 1px solid #e5e7eb;
+  transform: rotate(45deg);
+}
+.tc-pop-above::before {
+  top: auto; bottom: -5px;
+  border-left: none; border-top: none;
+  border-right: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb;
+}
+.tc-pop-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.tc-pop-chip {
+  flex: none; font-size: 11px; line-height: 16px; font-weight: 500;
+  color: #1d4ed8; background: #eff6ff; border-radius: 999px; padding: 1px 8px;
+}
+.tc-pop-name { font-size: 14px; font-weight: 600; color: #111827; }
+.tc-pop-id {
+  margin-left: auto; flex: none; font-size: 11px; line-height: 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #6b7280; background: #f3f4f6; border-radius: 999px; padding: 1px 8px;
+}
+.tc-pop-imgbox { border: 1px solid #e5e7eb; border-radius: 6px; max-height: 260px; overflow-y: auto; }
+.tc-pop-imgbox img { width: 100%; display: block; cursor: zoom-in; }
 .sym-fav:hover { transform: scale(1.2); }
 /* 工具栏按钮图标 */
 .toolbar .tb-btn { display: inline-flex; align-items: center; gap: 4px; }

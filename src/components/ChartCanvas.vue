@@ -4,7 +4,7 @@ import {
   state, labelFor, setColLabel, applyAt, commitBorder,
   eraseAt, fits, toggleHighlight, getSym, pasteAt, clipSel, clipBoard,
 } from '../store.js';
-import { CELL } from '../util.js';
+import { CELL, symDataUrl } from '../util.js';
 
 const svgEl = ref(null);
 const symCanvasEl = ref(null);
@@ -27,133 +27,83 @@ const boxStyle = computed(() => ({
   width: ((state.cols + PAD_L + PAD_R) * CELL * state.zoom) + 'px',
   height: ((state.rows + PAD_T + PAD_B) * CELL * state.zoom) + 'px',
 }));
+/* 符号位图 canvas 精确覆盖网格区（不含四周行号/列号留白） */
+const canvasStyle = computed(() => ({
+  left: (PAD_L * CELL * state.zoom) + 'px',
+  top: (PAD_T * CELL * state.zoom) + 'px',
+  width: (state.cols * CELL * state.zoom) + 'px',
+  height: (state.rows * CELL * state.zoom) + 'px',
+}));
 
 const placed = computed(() => state.placements.map(p => ({
   p, sym: getSym(p.sym), ty: state.rows - p.row - p.h + 1,
 })).filter(x => x.sym));
 
-/* ================= canvas 符号层（零 DOM 节点，视口渲染 + Path2D 矢量） =================
+/* ================= canvas 符号层（零 DOM 节点） =================
    演进：① 每放置一个 SymbolArt 组件实例 → 大图解切换秒级卡顿；
-   ② <g v-html> 内联路径 → 8-10s 主线程长任务；③ <defs>+<use> 影子树更慢，勿再试；
-   ④ 全世界单 canvas 位图 → 1000×1000 时 backing 被像素上限压到 1/36，符号全糊；
-   ⑤ data-URL Image + drawImage → Chrome 对 SVG image 首次绘制可能空帧，自测随机挂。
-   现方案：canvas sticky 只覆盖滚动视口（backing=视口×dpr 恒满分辨率），符号按
-   Path2D 缓存（WeakMap 按符号对象）逐放置矢量描画——零解码零异步，任意缩放
-   天然清晰；SVG 两层仍为世界尺寸原生滚动，三明治 z 序不变。 */
+   ② <g v-html> 内联路径一次性渲染 → 显示变快，但用户环境切回大图解仍有
+   8-10s 主线程长任务（694KB 字符串解析 + 上万节点 SVG 布局/绘制）；
+   ③ <defs>+<use> 去重实验 → Chrome 为数千 use 实例建影子树反而 9.4s，勿再试。
+   现方案：每符号生成 data-URL SVG → Image 缓存（按符号对象弱引用，自定义符号
+   编辑时对象被替换即自动失效），重绘 = 清屏 + 网格线 + 逐放置 drawImage 位图
+   blit，与 DOM 树完全解耦。z 序用「底 SVG(热区/高亮/行号列号) < canvas <
+   顶 SVG(边框/标注/框选/ghost)」夹心结构，与原单 SVG 层叠顺序一致 */
+const symImgs = new WeakMap();  // 符号对象 → HTMLImageElement
+let symPending = 0;             // 尚未解码完成的图片数
+let symWaiters = [];            // 等待全部图片就绪的回调（自测用）
 let symRaf = 0;
-let scroller = null;            // .canvas-scroll 滚动容器（sticky 跟随其滚动）
-let scrollRo = null;            // 视口尺寸变化 → 重绘
-let lastView = null;            // { k, ox, oy, px } backing↔格坐标换算（自测用）
-const symOpsCache = new WeakMap(); // 符号对象 → Path2D 绘制指令
 
-const svgParser = typeof DOMParser !== 'undefined' ? new DOMParser() : null;
-/* 符号 → [{path, fill, stroke, sw, cap}]：自定义符号按 shapes 直构，
-   内置符号解析预生成 svg 里的 <path>（无 transform/g，转换器保证） */
-function symOps(sym) {
-  let ops = symOpsCache.get(sym);
-  if (ops) return ops;
-  ops = [];
-  try {
-    if (sym && Array.isArray(sym.shapes)) {
-      for (const sh of sym.shapes) {
-        const p = new Path2D();
-        if (sh.type === 'line') { p.moveTo(sh.x1, sh.y1); p.lineTo(sh.x2, sh.y2); }
-        else if (sh.type === 'circle') { p.arc(sh.cx, sh.cy, sh.r, 0, Math.PI * 2); }
-        else if (sh.type === 'rect') { p.rect(sh.x, sh.y, sh.rw, sh.rh); }
-        else if (sh.type === 'curve') {
-          p.moveTo(sh.x1, sh.y1);
-          p.bezierCurveTo(sh.cx1, sh.cy1, sh.cx2, sh.cy2, sh.x2, sh.y2);
-        } else continue;
-        ops.push({ path: p, fill: null, stroke: sh.color || '#111', sw: sh.w || 0.07, cap: 'round' });
-      }
-    } else if (sym && sym.svg && svgParser) {
-      for (const el of svgParser.parseFromString(sym.svg, 'image/svg+xml').querySelectorAll('path')) {
-        const d = el.getAttribute('d');
-        if (!d) continue;
-        const fill = el.getAttribute('fill'), stroke = el.getAttribute('stroke');
-        ops.push({
-          path: new Path2D(d),
-          fill: fill && fill !== 'none' ? fill : null,
-          stroke: stroke && stroke !== 'none' ? stroke : null,
-          sw: parseFloat(el.getAttribute('stroke-width')) || 0.03,
-          cap: el.getAttribute('stroke-linecap') || 'butt',
-        });
-      }
-    }
-  } catch (e) { /* 解析失败按空符号处理 */ }
-  symOpsCache.set(sym, ops);
-  return ops;
-}
-function ensureScroller() {
-  if (scroller && scroller.isConnected) return scroller;
-  const cv = symCanvasEl.value;
-  scroller = cv ? cv.closest('.canvas-scroll') : null;
-  if (scroller && !scrollRo) {
-    scrollRo = new ResizeObserver(() => scheduleSymDraw());
-    scrollRo.observe(scroller);
-    scroller.addEventListener('scroll', scheduleSymDraw, { passive: true });
+function symImage(sym) {
+  let img = symImgs.get(sym);
+  if (!img) {
+    img = new Image();
+    symPending++;
+    img.onload = () => { symPending--; flushSymWaiters(); scheduleSymDraw(); };
+    img.onerror = () => { symPending--; flushSymWaiters(); console.warn('符号位图生成失败:', sym && sym.id); };
+    img.src = symDataUrl(sym);
+    symImgs.set(sym, img);
   }
-  return scroller;
+  return img;
+}
+function flushSymWaiters() {
+  if (symPending > 0) return;
+  symPending = 0;
+  const ws = symWaiters; symWaiters = [];
+  ws.forEach(r => r());
 }
 function drawSymLayer() {
   symRaf = 0;
   const cv = symCanvasEl.value;
   if (!cv) return;
   const { rows, cols, zoom } = state;
-  const px = CELL * zoom, cssW = cols * px, cssH = rows * px;
-  if (!(cssW > 0 && cssH > 0)) { lastView = null; return; }
-  const scr = ensureScroller();
-  if (!scr) return;
-  const vw = scr.clientWidth, vh = scr.clientHeight;
-  if (!(vw > 0 && vh > 0)) return;
-  /* backing = 视口 × dpr 恒满分辨率；硬上限仅防异常大视口/超高分屏 */
-  let scale = Math.min(window.devicePixelRatio || 1, 16384 / vw, 16384 / vh);
-  if (vw * vh * scale * scale > 16 * 1024 * 1024)
-    scale = Math.sqrt(16 * 1024 * 1024 / (vw * vh));
-  const bw = Math.max(1, Math.round(vw * scale)), bh = Math.max(1, Math.round(vh * scale));
+  const cssW = cols * CELL * zoom, cssH = rows * CELL * zoom;
+  if (!(cssW > 0 && cssH > 0)) return;
+  /* backing store 上限：防超大网格 × 高缩放时位图内存爆炸（1600 万像素 ≈ 64MB） */
+  let scale = Math.min(window.devicePixelRatio || 1, 16384 / cssW, 16384 / cssH);
+  if (cssW * cssH * scale * scale > 16 * 1024 * 1024)
+    scale = Math.sqrt(16 * 1024 * 1024 / (cssW * cssH));
+  const bw = Math.max(1, Math.round(cssW * scale)), bh = Math.max(1, Math.round(cssH * scale));
   if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
-  if (cv.style.width !== vw + 'px') { cv.style.width = vw + 'px'; cv.style.height = vh + 'px'; }
   const ctx = cv.getContext('2d');
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, bw, bh);
-  const gx = PAD_L * px, gy = PAD_T * px;                  // 网格原点在 #chartWrap 内的偏移
-  const sx = scr.scrollLeft - gx, sy = scr.scrollTop - gy; // 视口左上角（网格本地 css px）
-  const k = bw / vw;                                       // backing / CSS 像素比
-  ctx.setTransform(k, 0, 0, k, -sx * k, -sy * k);
-  lastView = { k, ox: -sx * k, oy: -sy * k, px };
-  /* 网格线只画可见范围，且限制在网格区内（视口可能露出留白区） */
-  const c0 = Math.max(0, Math.floor(sx / px)), c1 = Math.min(cols, Math.ceil((sx + vw) / px));
-  const r0 = Math.max(0, Math.floor(sy / px)), r1 = Math.min(rows, Math.ceil((sy + vh) / px));
-  const lx0 = Math.max(0, sx), lx1 = Math.min(cssW, sx + vw);
-  const ly0 = Math.max(0, sy), ly1 = Math.min(cssH, sy + vh);
+  ctx.setTransform(bw / cssW, 0, 0, bh / cssH, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  const px = CELL * zoom; // 1 格 CSS 像素
+  /* 网格线 + 外框（原先在 SVG 里，随符号层一起位图化） */
   ctx.strokeStyle = '#cbd5e1';
   ctx.lineWidth = 0.025 * px;
   ctx.beginPath();
-  for (let c = c0; c <= c1; c++) { ctx.moveTo(c * px, ly0); ctx.lineTo(c * px, ly1); }
-  for (let r = r0; r <= r1; r++) { ctx.moveTo(lx0, r * px); ctx.lineTo(lx1, r * px); }
+  for (let c = 0; c <= cols; c++) { ctx.moveTo(c * px, 0); ctx.lineTo(c * px, cssH); }
+  for (let r = 0; r <= rows; r++) { ctx.moveTo(0, r * px); ctx.lineTo(cssW, r * px); }
   ctx.stroke();
   const obw = 0.06 * px;
   ctx.strokeStyle = '#475569';
   ctx.lineWidth = obw;
   ctx.strokeRect(obw / 2, obw / 2, cssW - obw, cssH - obw);
-  /* 符号矢量绘制（可见区裁剪，±1 格余量给描边/抗锯齿） */
-  const visL = sx - px, visR = sx + vw + px, visT = sy - px, visB = sy + vh + px;
+  /* 符号位图 blit */
   for (const { p, sym, ty } of placed.value) {
-    const x = p.col * px, y = ty * px, w = p.w * px, h = p.h * px;
-    if (x > visR || x + w < visL || y > visB || y + h < visT) continue;
-    const ops = symOps(sym);
-    if (!ops.length) continue;
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.scale(px, px); // 符号内部坐标 = 格单位（与 symDataUrl viewBox 同系）
-    for (const op of ops) {
-      if (op.fill) { ctx.fillStyle = op.fill; ctx.fill(op.path); }
-      if (op.stroke) {
-        ctx.strokeStyle = op.stroke; ctx.lineWidth = op.sw;
-        ctx.lineCap = op.cap; ctx.stroke(op.path);
-      }
-    }
-    ctx.restore();
+    const img = symImage(sym);
+    if (!img.complete || !img.naturalWidth) continue; // 解码中，onload 后整体重绘
+    ctx.drawImage(img, p.col * px, ty * px, p.w * px, p.h * px);
   }
 }
 function scheduleSymDraw() {
@@ -165,36 +115,11 @@ watchEffect(() => {
   placed.value; state.zoom; state.cols; state.rows;
   scheduleSymDraw();
 });
-/* 自测钩子：selftest 同步重绘后取像素断言（reveal 把目标格块滚进视口） */
+/* 自测钩子：selftest 等待图片解码后同步重绘，再取像素断言 */
 if (typeof window !== 'undefined') {
   window.__symLayer = {
     redraw: drawSymLayer,
-    ready() { return Promise.resolve(); }, // Path2D 同步绘制，无解码等待（兼容自测）
-    /* 视口渲染下远处格子不落在 canvas 上：把目标格块滚到视口中心再同步重绘。
-       无条件中心化（clamp 后贴边也全可见，前提块≤视口），采样窗口确定 */
-    reveal(c0, ty, wCells, hCells) {
-      const scr = ensureScroller();
-      if (!scr) return;
-      const px = CELL * state.zoom;
-      const x = PAD_L * px + c0 * px, y = PAD_T * px + ty * px;
-      const w = wCells * px, h = hCells * px;
-      const mx = scr.scrollWidth - scr.clientWidth, my = scr.scrollHeight - scr.clientHeight;
-      scr.scrollLeft = Math.max(0, Math.min(mx, x + w / 2 - scr.clientWidth / 2));
-      scr.scrollTop = Math.max(0, Math.min(my, y + h / 2 - scr.clientHeight / 2));
-      drawSymLayer();
-    },
-    /* 格块 → canvas backing 像素矩形（含 18% 内缩，避开网格线/外框） */
-    blockRect(c0, ty, wCells, hCells) {
-      if (!lastView) return null;
-      const { k, ox, oy, px } = lastView;
-      return {
-        x: Math.round(ox + (c0 + 0.18) * px * k),
-        y: Math.round(oy + (ty + 0.18) * px * k),
-        w: Math.max(1, Math.round((wCells - 0.36) * px * k)),
-        h: Math.max(1, Math.round((hCells - 0.36) * px * k)),
-      };
-    },
-    debugView() { return lastView; },
+    ready() { return symPending > 0 ? new Promise(r => symWaiters.push(r)) : Promise.resolve(); },
   };
 }
 
@@ -347,14 +272,11 @@ function updateGhost(cell) {
 
 onMounted(() => {
   window.addEventListener('pointerup', onPointerUp);
-  ensureScroller();
   scheduleSymDraw();
 });
 onUnmounted(() => {
   window.removeEventListener('pointerup', onPointerUp);
   if (symRaf) cancelAnimationFrame(symRaf);
-  if (scrollRo) { scrollRo.disconnect(); scrollRo = null; }
-  if (scroller) { scroller.removeEventListener('scroll', scheduleSymDraw); scroller = null; }
 });
 </script>
 
@@ -398,8 +320,8 @@ onUnmounted(() => {
       </template>
     </svg>
 
-    <!-- 符号层：canvas 位图，零 DOM 节点（网格线+外框+所有符号），sticky 视口渲染 -->
-    <canvas id="symCanvas" ref="symCanvasEl"></canvas>
+    <!-- 符号层：canvas 位图，零 DOM 节点（网格线+外框+所有符号） -->
+    <canvas id="symCanvas" ref="symCanvasEl" :style="canvasStyle"></canvas>
 
     <!-- 顶层 SVG：边框 / 区域标注 / 框选 / ghost（位于符号位图之上，不接收指针） -->
     <svg id="chartTop" xmlns="http://www.w3.org/2000/svg" :viewBox="viewBox" pointer-events="none">

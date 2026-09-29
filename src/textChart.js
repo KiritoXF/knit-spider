@@ -39,21 +39,22 @@ export function chartToTextRows(st) {
     let cur = null;
     const step = c => {
       const p = cell.get(c);
-      let name;
-      if (!p) name = ws ? '下针' : '上针';
+      let name, sid;
+      if (!p) { name = ws ? '下针' : '上针'; sid = null; } // 背景针无符号 id，教程按 NAME_TUT 名称映射
       else {
         if (emitted.has(p)) return;
         emitted.add(p);
+        sid = p.sym;
         name = ws ? (WS_NAME[p.sym] || symTextName(p.sym, st.customSymbols))
                   : symTextName(p.sym, st.customSymbols);
       }
       if (cur && cur.name === name) cur.n++;
-      else { cur = { name, n: 1 }; groups.push(cur); }
+      else { cur = { name, n: 1, sid }; groups.push(cur); }
     };
     if (onRight) for (let c = st.cols - 1; c >= 0; c--) step(c);
     else for (let c = 0; c < st.cols; c++) step(c);
     rows.push({
-      r, ws,
+      r, ws, groups,
       text: 'r' + r + (ws ? '（反面）' : '') + '：' + groups.map(g => g.n + g.name).join('，'),
     });
   }

@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import {
   state, resizeGrid, clearAll, clearColLabels, setRowStartSide,
-  saveJson, saveChartJson, importJson, activeWork,
+  saveJson, saveChartJson, importJson, importArchive, activeWork,
   addWork, renameWork, deleteWork, switchWork,
 } from '../store.js';
 import { ui, withLoading } from '../ui.js';
@@ -44,15 +44,20 @@ async function onLoadJson(e) {
   e.target.value = '';
   if (!file) return;
   try {
-    await importJson(await file.text());
+    // zip 作品包（含教程图）与 json 存档按扩展名/类型分流
+    if (/\.zip$/i.test(file.name) || /zip/i.test(file.type)) {
+      await importArchive(file);
+    } else {
+      await importJson(await file.text());
+    }
   } catch (err) {
     alert('载入失败：' + (err && err.message ? err.message : '文件解析错误'));
   }
 }
 
 function applyResize() {
-  const cols = Math.min(1000, Math.max(4, +inCols.value || state.cols));
-  const rows = Math.min(1000, Math.max(4, +inRows.value || state.rows));
+  const cols = Math.min(200, Math.max(4, +inCols.value || state.cols));
+  const rows = Math.min(200, Math.max(4, +inRows.value || state.rows));
   inCols.value = cols; inRows.value = rows;
   resizeGrid(cols, rows);
 }
@@ -88,10 +93,10 @@ function onClear() {
       <div class="flex items-center gap-1 text-xs">
         <span>宽</span>
         <input id="inCols" v-model.number="inCols" type="number"
-          class="tb-input w-14" min="4" max="1000">
+          class="tb-input w-14" min="4" max="200">
         <span>行</span>
         <input id="inRows" v-model.number="inRows" type="number"
-          class="tb-input w-14" min="4" max="1000">
+          class="tb-input w-14" min="4" max="200">
         <button id="btnResize" class="tb-btn" @click="applyResize">应用</button>
       </div>
     </div>
@@ -114,13 +119,13 @@ function onClear() {
     <div class="tb-group ml-auto">
       <button id="btnTextChart" class="tb-btn" title="把当前图解转换为逐行文字解（反面行自动换算，可复制/下载txt）"
         @click="ui.textChartOpen = true">文字解</button>
-      <button id="btnSaveJson" class="tb-btn" title="把整个作品（全部图解）保存为 JSON 文件"
+      <button id="btnSaveJson" class="tb-btn" title="把整个作品（全部图解+本机教程图）保存为 zip 作品包"
         @click="onSaveWork">存档</button>
       <button id="btnSaveChartJson" class="tb-btn" title="仅导出当前图解为 JSON 文件"
         @click="onSaveChart">导出图解</button>
-      <button id="btnLoadJson" class="tb-btn" title="从 JSON 文件载入：作品包导入为新作品，单图解追加为新图解"
+      <button id="btnLoadJson" class="tb-btn" title="从文件载入：zip 作品包（含教程图）或 JSON 存档，一律追加为新作品/新图解"
         @click="pickLoadJson">载入</button>
-      <input ref="fileInput" type="file" accept=".json,application/json"
+      <input ref="fileInput" type="file" accept=".json,.zip,application/json,application/zip"
         style="display:none" @change="onLoadJson">
       <button id="btnExport" class="tb-btn-primary" @click="exportSvg">导出 SVG</button>
       <button id="btnClear" class="tb-btn-danger" @click="onClear">清空</button>
