@@ -1,6 +1,6 @@
 <script setup>
-import { ref, computed, watch } from 'vue';
-import { ui } from '../ui.js';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ui, dlg, toast, appConfirm } from '../ui.js';
 import { state, getSym } from '../store.js';
 import { listTutorials, putTutorial, deleteTutorial, tutorialObjectUrl } from '../tutorialStore.js';
 import { tutorialUrlForSid } from '../tutorials.js';
@@ -8,8 +8,11 @@ import { SYMBOLS, PALETTE_ORDER } from '../symbols.js';
 import { symDataUrl } from '../util.js';
 
 /* ---- 织法教程图管理（针法字典）：左侧按符号挑选，右侧为该符号上传/替换教程图 ----
-   上传不再按文件名猜符号 id，改为「先选符号 → 传图」；图片存 IndexedDB，
-   导出作品 zip 时随包分享。红色圆点=我上传的，灰色圆点=内置图，虚线圈=未配置 */
+   上传不再按文件名猜符号 id，改为「先选符号 → 传图」；图片存 IndexedDB（sid 为主键，
+   同 sid 覆盖，不可能存进两条相同 key）；导出作品 zip 时随包分享。
+   红色圆点=我上传的，灰色圆点=内置图，虚线圈=未配置。
+   游离记录：sid 不属于任何内置/自定义符号（旧版 zip 按中文文件名导入会产生），
+   在符号网格里无处显示，单独列出可清理。 */
 
 const q = ref('');
 const filter = ref('all');   // 'all' 全部 | 'mine' 我上传的 | 'none' 未配置
@@ -24,6 +27,14 @@ let pendingSid = null; // 正在为哪个符号选图
 
 function refresh() { mineList.value = listTutorials(); }
 
+/* Esc 关闭（应用内对话框 dlg.open 让路） */
+function onKey(e) {
+  if (e.key !== 'Escape' || !ui.tutorialOpen || dlg.open) return;
+  ui.tutorialOpen = false;
+}
+onMounted(() => document.addEventListener('keydown', onKey));
+onUnmounted(() => document.removeEventListener('keydown', onKey));
+
 watch(() => ui.tutorialOpen, v => {
   if (!v) return;
   refresh();
@@ -36,6 +47,28 @@ const mineMap = computed(() => {
   for (const it of mineList.value) m.set(it.sid, it);
   return m;
 });
+
+/* 游离教程图：sid 不对应任何内置符号或当前自定义符号（多半来自旧版 zip 按文件名导入）。
+   这些图文字解永远查不到，符号网格里也不显示，单独提示可一键清理 */
+const orphanSids = computed(() => {
+  const customs = new Set((state.customSymbols || []).map(c => c.id));
+  return mineList.value.map(it => it.sid)
+    .filter(sid => !SYMBOLS[sid] && !customs.has(sid));
+});
+
+async function cleanOrphans() {
+  const n = orphanSids.value.length;
+  if (!n) return;
+  const ok = await appConfirm({
+    title: '清理无法识别的教程图',
+    message: `检测到 ${n} 张教程图的符号 id 在当前符号库中找不到（可能是旧版 zip 导入留下的，文字解不会使用它们）。\n清理后不影响其他教程图，确定删除？`,
+    okText: '清理', danger: true,
+  });
+  if (!ok) return;
+  for (const sid of orphanSids.value.slice()) await deleteTutorial(sid);
+  refresh();
+  toast(`已清理 ${n} 张无法识别的教程图`, 'ok');
+}
 
 const items = computed(() => {
   mineMap.value; // 上传库刷新后重算列表
@@ -121,7 +154,7 @@ async function onDel() {
 
 <template>
   <div v-if="ui.tutorialOpen" class="fixed inset-0 bg-black/30 items-center justify-center"
-    style="z-index:50;display:flex">
+    style="z-index:50;display:flex" @mousedown.self="ui.tutorialOpen = false">
     <div class="bg-white rounded-xl shadow-2xl w-[880px] max-w-[calc(100vw-24px)] max-h-[88vh]
       overflow-hidden flex flex-col">
       <!-- 头部：针法字典 -->
@@ -149,6 +182,21 @@ async function onDel() {
                   : 'bg-white text-gray-500 border-stone-200 hover:border-rose-300'"
                 @click="filter = f[0]">{{ f[1] }}</button>
               <span class="ml-auto text-[11px] text-gray-400">{{ items.length }} 个符号</span>
+            </div>
+          </div>
+          <!-- 游离教程图警告：sid 不属于任何符号（旧版 zip 导入可能产生） -->
+          <div v-if="orphanSids.length"
+            class="mx-3 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700">
+            <div class="flex items-start gap-1.5">
+              <span class="flex-none">⚠️</span>
+              <div class="min-w-0 flex-1">
+                <div class="font-bold">{{ orphanSids.length }} 张教程图无法匹配符号</div>
+                <div class="mt-0.5 text-amber-600/90 break-all leading-snug">
+                  id：{{ orphanSids.join('、') }}
+                </div>
+                <button class="mt-1.5 text-[11px] rounded border border-amber-300 bg-white px-2 py-0.5 text-amber-700 hover:bg-amber-100"
+                  @click="cleanOrphans">清理这些图</button>
+              </div>
             </div>
           </div>
           <div class="flex-1 overflow-y-auto px-3 pb-3">
@@ -202,7 +250,7 @@ async function onDel() {
           </div>
 
           <div class="mt-4 flex items-center gap-2 flex-wrap">
-            <button id="tutUpload" class="bg-blue-600 text-white rounded-md px-4 py-1.5 text-sm hover:bg-blue-700"
+            <button id="tutUpload" class="bg-rose-700 text-white rounded-md px-4 py-1.5 text-sm hover:bg-rose-800"
               @click="pickFor(sel.id)">{{ sel.hasMine ? '替换图片' : '上传图片' }}</button>
             <button v-if="sel.hasMine" id="tutDelete"
               class="border border-red-200 rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"

@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
   state, upsertCustom, deleteCustom, selectTool, openEditor, closeEditor,
 } from '../store.js';
-import { ui, ed } from '../ui.js';
+import { ui, ed, toast, dlg, appConfirm } from '../ui.js';
 import SymbolArt from './SymbolArt.vue';
 
 const edCanvas = ref(null);
@@ -46,14 +46,19 @@ function applySize() {
 function edWValue() { return document.getElementById('edW').value; }
 function edHValue() { return document.getElementById('edH').value; }
 
-function onDeleteExisting(id) {
-  if (confirm('删除这个自定义符号？图上已放置的也会一并删除。')) deleteCustom(id);
+async function onDeleteExisting(id) {
+  const ok = await appConfirm({
+    title: '删除自定义符号',
+    message: '删除这个自定义符号？\n图上已放置的也会一并删除。',
+    okText: '删除', danger: true,
+  });
+  if (ok) deleteCustom(id);
 }
 
 function onSave() {
   ed.name = document.getElementById('edName').value.trim();
-  if (!ed.name) return alert('请填写符号名称');
-  if (!ed.shapes.length) return alert('请至少画一个图元');
+  if (!ed.name) return toast('请填写符号名称', 'warn');
+  if (!ed.shapes.length) return toast('请至少画一个图元', 'warn');
   const id = upsertCustom({ id: ed.id || undefined, name: ed.name, w: ed.w, h: ed.h, shapes: ed.shapes });
   selectTool(id);
   closeEditor();
@@ -142,19 +147,39 @@ function onPointerUp() {
   }
   ed.drawing = null; edPainting = false;
 }
-onMounted(() => window.addEventListener('pointerup', onPointerUp));
-onUnmounted(() => window.removeEventListener('pointerup', onPointerUp));
+/* Esc：应用内对话框优先（dlg.open 让路）；正在画的图元先取消，再按才关弹窗 */
+function onKey(e) {
+  if (e.key !== 'Escape' || !ui.editorOpen || dlg.open) return;
+  if (ed.drawing) { ed.drawing = null; return; }
+  closeEditor();
+}
+onMounted(() => {
+  window.addEventListener('pointerup', onPointerUp);
+  document.addEventListener('keydown', onKey);
+});
+onUnmounted(() => {
+  window.removeEventListener('pointerup', onPointerUp);
+  document.removeEventListener('keydown', onKey);
+});
 </script>
 
 <template>
   <div v-if="ui.editorOpen" id="modal"
-    class="fixed inset-0 bg-black/30 items-center justify-center open" style="z-index:50;display:flex">
-    <div class="bg-white rounded-lg shadow-xl w-[780px] max-h-[92vh] overflow-auto p-4">
-      <div class="flex justify-between items-center mb-3">
-        <h2 class="font-bold text-sm">自定义符号</h2>
-        <button id="edClose" class="text-xl leading-none px-2 text-gray-500 hover:text-black"
-          @click="closeEditor">×</button>
+    class="fixed inset-0 bg-black/30 items-center justify-center open" style="z-index:50;display:flex"
+    @mousedown.self="closeEditor()">
+    <div class="modal-shell w-[780px] max-h-[92vh] overflow-auto">
+      <div class="modal-head">
+        <h2 class="modal-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
+            <path d="m15 5 4 4"/>
+          </svg>
+          自定义符号
+        </h2>
+        <button id="edClose" class="modal-x" title="关闭" @click="closeEditor">×</button>
       </div>
+      <div class="p-4 pt-3">
 
       <div class="text-xs text-gray-600 mb-1">已有符号</div>
       <div id="edList" class="flex flex-wrap gap-2 mb-4">
@@ -164,7 +189,7 @@ onUnmounted(() => window.removeEventListener('pointerup', onPointerUp));
             <SymbolArt :sym="s"/>
           </svg>
           <span>{{ s.name }}</span>
-          <button class="text-blue-600 ed-edit" :data-id="s.id"
+          <button class="text-rose-600 ed-edit" :data-id="s.id"
             @click="openEditor(s.id)">编辑</button>
           <button class="text-red-500 ed-del" :data-id="s.id"
             @click="onDeleteExisting(s.id)">删除</button>
@@ -267,12 +292,13 @@ onUnmounted(() => window.removeEventListener('pointerup', onPointerUp));
             </div>
           </div>
           <div class="flex gap-2 pt-1">
-            <button id="edSave" class="bg-blue-600 text-white rounded px-3 py-1"
+            <button id="edSave" class="bg-rose-700 text-white rounded px-3 py-1"
               @click="onSave">保存到符号面板</button>
             <button id="edCancel" class="border rounded px-3 py-1 bg-white"
               @click="closeEditor">放弃新建</button>
           </div>
         </div>
+      </div>
       </div>
     </div>
   </div>

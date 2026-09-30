@@ -1,9 +1,10 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { state, activeWork } from '../store.js';
-import { ui } from '../ui.js';
+import { state, activeWork, getSym } from '../store.js';
+import { ui, dlg } from '../ui.js';
 import { chartToTextRows } from '../textChart.js';
-import { tutorialUrlForGroup } from '../tutorials.js';
+import { tutorialUrlForGroup, tutorialUrlForSid } from '../tutorials.js';
+import SymbolArt from './SymbolArt.vue';
 
 const copied = ref(false);
 let copiedTimer = null;
@@ -12,11 +13,32 @@ const close = () => { hidePop(); ui.textChartOpen = false; };
 
 const rows = computed(() => chartToTextRows(state));
 const text = computed(() => rows.value.map(x => x.text).join('\n'));
+/* 弹窗标题：作品名 · 图解名 */
+const headTitle = computed(() => {
+  const w = activeWork();
+  const c = w && w.charts.find(x => x.id === state.activeChartId);
+  return (w ? w.name : '') + ' · ' + (c ? c.name : '');
+});
 /* 展示用：分组自带 sid（符号 id），附教程图 URL；未配置教程的名称 tut=null，悬停无感 */
 const view = computed(() => rows.value.map(x => ({
   r: x.r, ws: x.ws,
   groups: (x.groups || []).map(g => ({ ...g, tut: tutorialUrlForGroup(g) })),
 })));
+/* 本图解用到的符号速查：扫正文分组的 sid 去重（含背景针），累计使用次数，按次数降序。
+   sym 取内置/自定义符号定义用于画缩略图；tut 为教程图 URL（有图才显示虚线下划线） */
+const legend = computed(() => {
+  const map = new Map();
+  for (const row of rows.value) {
+    for (const g of row.groups || []) {
+      let it = map.get(g.sid);
+      if (!it) { it = { sid: g.sid, name: g.name, n: 0, sym: getSym(g.sid), tut: null }; map.set(g.sid, it); }
+      it.n += g.n;
+    }
+  }
+  const list = [...map.values()].sort((a, b) => b.n - a.n);
+  for (const it of list) it.tut = tutorialUrlForSid(it.sid);
+  return list;
+});
 
 /* ---- 织法教程 popover：悬停有教程的针法名称约 300ms 后弹出 ----
    fixed 定位（视口坐标），宽 640px 尽量大地显示教程图；下方空间不足时向上翻，
@@ -53,7 +75,13 @@ function onNameEnter(ev, g) {
   }, 300);
 }
 function onNameLeave() { delayHide(); }
-const onKey = e => { if (e.key === 'Escape') hidePop(); };
+/* Esc：应用内对话框优先（dlg.open 让路）→ 先关教程 popover → 再关弹窗 */
+const onKey = e => {
+  if (e.key !== 'Escape' || !ui.textChartOpen) return;
+  if (dlg.open) return;
+  if (pop.value) hidePop();
+  else close();
+};
 onMounted(() => document.addEventListener('keydown', onKey));
 onUnmounted(() => { document.removeEventListener('keydown', onKey); hidePop(); });
 
@@ -95,31 +123,70 @@ function onDownload() {
 
 <template>
   <div v-if="ui.textChartOpen" class="fixed inset-0 bg-black/30 items-center justify-center"
-    style="z-index:50;display:flex">
-    <div class="bg-white rounded-lg shadow-xl w-[760px] max-h-[92vh] overflow-auto p-4">
-      <div class="flex justify-between items-center mb-2">
-        <h2 class="font-bold text-sm">文字解 — {{ title }}</h2>
-        <button id="tcClose" class="text-xl leading-none px-2 text-gray-500 hover:text-black"
-          @click="close">×</button>
+    style="z-index:50;display:flex" @mousedown.self="close">
+    <div class="modal-shell tcm-shell">
+      <div class="modal-head">
+        <h2 class="modal-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
+            <path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>
+          </svg>
+          文字解<span class="modal-sub">— {{ headTitle }}</span>
+        </h2>
+        <span class="tcm-chip">共 {{ state.rows }} 行</span>
+        <button id="tcClose" class="modal-x" title="关闭" @click="close">×</button>
       </div>
-      <p class="text-[11px] text-gray-500 mb-2 leading-relaxed">
-        正面行从右往左织（按图解原样读）；反面行从左往右织，下针↔上针互换、扭针织成上针的扭针。
-        空白格为背景针：正面织上针、反面织下针。每行读取方向与该行行号所在侧一致。
-      </p>
-      <div id="textChartView"
-        class="w-full h-[55vh] overflow-y-auto overflow-x-hidden border rounded p-3 bg-gray-50 space-y-1.5"
-        @scroll.passive="hidePop">
-        <p v-for="row in view" :key="row.r" class="text-[13px] leading-relaxed">
-          <span class="inline-block min-w-[2.4rem] font-mono font-bold"
-            :class="row.ws ? 'text-pink-600' : 'text-blue-700'">r{{ row.r }}</span>
-          <span v-if="row.ws"
-            class="inline-block text-[10px] leading-none bg-pink-100 text-pink-600 rounded px-1 py-0.5 mr-2">反面</span>
-          <span v-for="(g, i) in row.groups" :key="i" class="whitespace-normal">
-            <b class="text-gray-900">{{ g.n }}</b><span class="text-gray-700" :class="{ 'tc-name-tut': g.tut }"
-              @mouseenter="onNameEnter($event, g)" @mouseleave="onNameLeave">{{ g.name }}</span><span
-              v-if="i < row.groups.length - 1" class="text-gray-300">，</span>
-          </span>
-        </p>
+      <div class="tcm-body">
+        <!-- 左栏：符号速查 + 操作 + 读法提示（常驻可见，随时核对） -->
+        <aside class="tcm-side">
+          <div class="tcm-side-head">
+            <h3>本图解用到的符号</h3>
+            <span class="tcm-count">{{ legend.length }} 种</span>
+          </div>
+          <div class="tcm-syms">
+            <p v-if="!legend.length" class="tcm-empty">该图解还没有内容。</p>
+            <div v-for="it in legend" :key="it.sid" class="tcm-sym">
+              <svg v-if="it.sym" class="tcm-sym-ico" :viewBox="`0 0 ${it.sym.w} ${it.sym.h}`">
+                <SymbolArt :sym="it.sym"/>
+              </svg>
+              <span v-else class="tcm-sym-ico-none">{{ it.name.slice(0, 1) }}</span>
+              <span class="tcm-sym-name" :class="{ 'tc-name-tut': it.tut }"
+                :title="it.tut ? '悬停查看织法教程图' : ''"
+                @mouseenter="onNameEnter($event, it)" @mouseleave="onNameLeave">{{ it.name }}</span>
+              <span class="tcm-sym-n" title="全图出现次数">×{{ it.n }}</span>
+            </div>
+          </div>
+          <div class="tcm-side-foot">
+            <div class="tcm-acts">
+              <button id="tcCopy" class="tcm-btn tcm-btn-main" @click="onCopy">复制全文</button>
+              <button id="tcDownload" class="tcm-btn" @click="onDownload">下载 txt</button>
+              <span v-if="copied" class="tcm-flash">已复制</span>
+            </div>
+            <p class="tcm-hint">
+              正面行从右往左织（按图解原样读）；反面行从左往右织，下针↔上针互换、扭针织成上针的扭针。
+            </p>
+            <p class="tcm-hint">空白格为背景针：正面织上针、反面织下针。</p>
+            <p class="tcm-hint"><b>虚线下划线</b> = 有教程图，悬停针名可看大图。</p>
+          </div>
+        </aside>
+        <!-- 右栏：文字解正文，独立滚动 -->
+        <div class="tcm-main">
+          <div id="textChartView" class="tcm-doc" @scroll.passive="hidePop">
+            <div v-for="row in view" :key="row.r" class="tcm-row" :class="{ 'tcm-row-ws': row.ws }">
+              <span class="tcm-rno">r{{ row.r }}</span>
+              <span v-if="row.ws" class="tcm-ws-badge">反面</span>
+              <span class="tcm-txt">
+                <span v-for="(g, i) in row.groups" :key="i">
+                  <b>{{ g.n }}</b><span :class="{ 'tc-name-tut': g.tut }"
+                    @mouseenter="onNameEnter($event, g)" @mouseleave="onNameLeave">{{ g.name }}</span><span
+                    v-if="i < row.groups.length - 1" class="tcm-comma">，</span>
+                </span>
+              </span>
+              <span class="tcm-sum">{{ state.cols }} 针</span>
+            </div>
+          </div>
+        </div>
       </div>
       <!-- 织法教程 popover：fixed 定位，Esc/滚动内容区/移开关闭；移入弹窗保持显示，点图片看原图 -->
       <div v-if="pop" class="tc-pop" :class="{ 'tc-pop-above': pop.above }"
@@ -133,12 +200,6 @@ function onDownload() {
         <div class="tc-pop-imgbox" :style="{ maxHeight: pop.imgH + 'px' }">
           <img :src="pop.url" alt="" title="点击查看原图" @click="onImgClick">
         </div>
-      </div>
-      <div class="flex gap-2 pt-2 items-center">
-        <button id="tcCopy" class="bg-blue-600 text-white rounded px-3 py-1" @click="onCopy">复制全文</button>
-        <button id="tcDownload" class="border rounded px-3 py-1 bg-white" @click="onDownload">下载 txt</button>
-        <span v-if="copied" class="text-xs text-green-600">已复制到剪贴板</span>
-        <span class="ml-auto text-[11px] text-gray-400">共 {{ state.rows }} 行</span>
       </div>
     </div>
   </div>

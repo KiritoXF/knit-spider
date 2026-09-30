@@ -39,6 +39,14 @@ const placed = computed(() => state.placements.map(p => ({
   p, sym: getSym(p.sym), ty: state.rows - p.row - p.h + 1,
 })).filter(x => x.sym));
 
+/* 工具光标：擦除=指针、粘贴=复制、框选/边框=十字；符号工具保持默认（有 ghost 预览） */
+const toolClass = computed(() => {
+  if (state.tool === 'erase') return 'cur-erase';
+  if (state.tool === 'paste') return 'cur-paste';
+  if (state.tool === 'select' || state.tool === 'border') return 'cur-cross';
+  return '';
+});
+
 /* ================= canvas 符号层（零 DOM 节点） =================
    演进：① 每放置一个 SymbolArt 组件实例 → 大图解切换秒级卡顿；
    ② <g v-html> 内联路径一次性渲染 → 显示变快，但用户环境切回大图解仍有
@@ -286,6 +294,7 @@ onUnmounted(() => {
     <svg
       id="chart"
       ref="svgEl"
+      :class="toolClass"
       xmlns="http://www.w3.org/2000/svg"
       :viewBox="viewBox"
       @pointerdown="onPointerDown"

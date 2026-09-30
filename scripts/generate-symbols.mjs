@@ -28,7 +28,7 @@ if (!existsSync(SRC_DIR)) {
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '' });
 
 /* ---------- 符号清单：id → { file, name, cat, w(格), h(格) } ----------
-   cat 分类：basic 基础 / dec 减针 / inc 增针 / cross 扭针交叉 / cable 交叉针 / slip 滑针·引上 */
+   cat 分类：basic 基础 / dec 减针 / inc 加针 / cross 扭针交叉 / cable 交叉针 / slip 滑针·引上 */
 const SYMBOL_DEFS = [
   // 基础
   { id: 'knit',    file: 'knit',          name: '下针',             cat: 'basic' },
@@ -43,29 +43,29 @@ const SYMBOL_DEFS = [
   { id: 'noSt',    file: 'nostitch',      name: '不编织', cat: 'basic' },
   { id: 'bindOff', file: 'bindoff',       name: '伏针',           cat: 'basic' },
   // 減針
-  { id: 'ssk',     file: 'decreaseleft',           name: '左上2目一度',       cat: 'dec' },
-  { id: 'k2tog',   file: 'decreaseright',          name: '右上2目一度',       cat: 'dec' },
-  { id: 'ss2',     file: 'decreaseleft.2w',        name: '左上2目一度(幅2)',  cat: 'dec' },
-  { id: 'ks2',     file: 'decreaseright.2w',       name: '右上2目一度(幅2)',  cat: 'dec' },
-  { id: 'sskP',    file: 'decreaseleft_purl',      name: '左上2目一度(裏)',   cat: 'dec' },
-  { id: 'k2togP',  file: 'decreaseright_purl',     name: '右上2目一度(裏)',   cat: 'dec' },
-  { id: 'd3c',     file: 'decrease3to1centered',   name: '中上3目一度',       cat: 'dec' },
-  { id: 'd3l',     file: 'decrease3to1left',       name: '左上3目一度',       cat: 'dec' },
-  { id: 'd3r',     file: 'decrease3to1right',      name: '右上3目一度',       cat: 'dec' },
-  { id: 'd4l',     file: 'decrease4to1left',       name: '左上4目一度',       cat: 'dec' },
-  { id: 'd4r',     file: 'decrease4to1right',      name: '右上4目一度',       cat: 'dec' },
-  { id: 'd5c',     file: 'decrease5to1centered',   name: '中上5目一度',       cat: 'dec' },
-  { id: 'd5l',     file: 'decrease5to1left',       name: '左上5目一度',       cat: 'dec' },
-  { id: 'd5r',     file: 'decrease5to1right',      name: '右上5目一度',       cat: 'dec' },
-  { id: 'd6l',     file: 'decrease6to1left',       name: '左上6目一度',       cat: 'dec' },
-  { id: 'd6r',     file: 'decrease6to1right',      name: '右上6目一度',       cat: 'dec' },
-  { id: 'd7c',     file: 'decrease7to1',           name: '中上7目一度',       cat: 'dec' },
-  { id: 'd7l',     file: 'decrease7to1left',       name: '左上7目一度',       cat: 'dec' },
-  { id: 'd7r',     file: 'decrease7to1right',      name: '右上7目一度',       cat: 'dec' },
-  // 増針
-  { id: 'inL',     file: 'increaseleft',           name: '左増し目',          cat: 'inc' },
-  { id: 'inR',     file: 'increaseright',          name: '右増し目',          cat: 'inc' },
-  { id: 'in3',     file: 'increase1to3',           name: '1目から3目',        cat: 'inc' },
+  { id: 'ssk',     file: 'decreaseleft',           name: '右上2针并1针',       cat: 'dec' },
+  { id: 'k2tog',   file: 'decreaseright',          name: '左上2针并1针',       cat: 'dec' },
+  // { id: 'ss2',     file: 'decreaseleft.2w',        name: '右上2针并1针(2格)',  cat: 'dec' },
+  // { id: 'ks2',     file: 'decreaseright.2w',       name: '左上2针并1针(2格)',  cat: 'dec' },
+  { id: 'sskP',    file: 'decreaseleft_purl',      name: '上针的右上2针并1针',   cat: 'dec' },
+  { id: 'k2togP',  file: 'decreaseright_purl',     name: '上针的左上2针并1针',   cat: 'dec' },
+  { id: 'd3c',     file: 'decrease3to1centered',   name: '中上3针并1针',       cat: 'dec' },
+  { id: 'd3l',     file: 'decrease3to1left',       name: '右上3针并1针',       cat: 'dec' },
+  { id: 'd3r',     file: 'decrease3to1right',      name: '左上3针并1针',       cat: 'dec' },
+  { id: 'd4l',     file: 'decrease4to1left',       name: '右上4针并1针',       cat: 'dec' },
+  { id: 'd4r',     file: 'decrease4to1right',      name: '左上4针并1针',       cat: 'dec' },
+  { id: 'd5c',     file: 'decrease5to1centered',   name: '中上5针并1针',       cat: 'dec' },
+  { id: 'd5l',     file: 'decrease5to1left',       name: '右上5针并1针',       cat: 'dec' },
+  { id: 'd5r',     file: 'decrease5to1right',      name: '左上5针并1针',       cat: 'dec' },
+  { id: 'd6l',     file: 'decrease6to1left',       name: '右上6针并1针',       cat: 'dec' },
+  { id: 'd6r',     file: 'decrease6to1right',      name: '左上6针并1针',       cat: 'dec' },
+  { id: 'd7c',     file: 'decrease7to1centered',   name: '中上7针并1针',       cat: 'dec' },
+  { id: 'd7l',     file: 'decrease7to1left',       name: '右上7针并1针',       cat: 'dec' },
+  { id: 'd7r',     file: 'decrease7to1right',      name: '左上7针并1针',       cat: 'dec' },
+  // 加针
+  { id: 'inL',     file: 'increaseleft',           name: '左加针',          cat: 'inc' },
+  { id: 'inR',     file: 'increaseright',          name: '右加针',          cat: 'inc' },
+  { id: 'in3',     file: 'increase1to3',           name: '1针放3针的加针',        cat: 'inc' },
   // 1 目交差（2 列 × 1 行）
   { id: 'xR',      file: 'crossleft',              name: '右上1针交叉',       cat: 'cable' },
   { id: 'xL',      file: 'crossright',             name: '左上1针交叉',       cat: 'cable' },
@@ -87,19 +87,19 @@ const SYMBOL_DEFS = [
   // 2×2 交差（4 列 × 1 行）
   { id: 'c22L',    file: 'c2over2left',            name: '右上2针交叉',       cat: 'cable' },
   { id: 'c22R',    file: 'c2over2right',           name: '左上2针交叉',       cat: 'cable' },
-  { id: 'c22LP',   file: 'c2over2left-purl',       name: '右上2针交叉(下侧为上针)',  cat: 'cable' },
-  { id: 'c22RP',   file: 'c2over2right-purl',      name: '左上2针交叉(下侧为上针)',  cat: 'cable' },
+  { id: 'c22LP',   file: 'c2over2left-purl',       name: '右上2针交叉(中间织1针上针)',  cat: 'cable' },
+  { id: 'c22RP',   file: 'c2over2right-purl',      name: '左上2针交叉(中间织1针上针)',  cat: 'cable' },
   // 3×3 交差（6 列 × 1 行，源库无，本项目参照 c22 几何自建）
   { id: 'c33L',    file: 'c3over3left',            name: '右上3针交叉',      cat: 'cable', dir: 'local-symbols' },
   { id: 'c33R',    file: 'c3over3right',           name: '左上3针交叉',      cat: 'cable', dir: 'local-symbols' },
   { id: 'c33LP',   file: 'c3over3left-purl',       name: '右上3针交叉(下侧为上针)',  cat: 'cable', dir: 'local-symbols' },
   { id: 'c33RP',   file: 'c3over3right-purl',      name: '左上3针交叉(下侧为上针)',  cat: 'cable', dir: 'local-symbols' },
   // 滑针・引上（2 行高）
-  { id: 'slip',    file: 'slip',                   name: 'すべり目(2段)',     cat: 'slip' },
-  { id: 'slipf',   file: 'slipwyif',               name: 'すべり目・手前(2段)', cat: 'slip' },
-  { id: 'dip',     file: 'dip',                    name: '引き上げ目(2段)',   cat: 'slip' },
-  { id: 'dipP',    file: 'dip_purl',               name: '引き上げ目(裏・2段)', cat: 'slip' },
-  { id: 'dipT',    file: 'diptwist',               name: 'ねじり引き上げ目(2段)', cat: 'slip' },
+  // { id: 'slip',    file: 'slip',                   name: 'すべり目(2段)',     cat: 'slip' },
+  // { id: 'slipf',   file: 'slipwyif',               name: 'すべり目・手前(2段)', cat: 'slip' },
+  // { id: 'dip',     file: 'dip',                    name: '引き上げ目(2段)',   cat: 'slip' },
+  // { id: 'dipP',    file: 'dip_purl',               name: '引き上げ目(裏・2段)', cat: 'slip' },
+  // { id: 'dipT',    file: 'diptwist',               name: 'ねじり引き上げ目(2段)', cat: 'slip' },
 ];
 
 /* ---------- 解析单个 SVG ---------- */
@@ -319,10 +319,6 @@ for (const def of SYMBOL_DEFS) {
   order.push(def.id);
   console.log(`OK  ${def.id.padEnd(8)} ${cellsW}x${cellsH}  (${converted.length} paths, y0=${y0})`);
 }
-
-// 兼容旧存档（不进面板清单，仅保证旧 placement 可渲染）
-symbols.dec3 = symbols.d3c;
-symbols.twist = symbols.tws;
 
 const out = `/* 此文件由 scripts/generate-symbols.mjs 自动生成，请勿手改。
    数据来源：knitting_symbols 0.7.2 / JIS/*.svg（MIT，Marnen Laibow-Koser） */

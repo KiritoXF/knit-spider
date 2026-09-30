@@ -9,10 +9,14 @@
    · 连续同名称合并计数，如 19下针、1左上两针交叉 */
 import { SYMBOLS } from './symbols.js';
 
-/* 反面行的符号名称映射（按符号 id） */
-const WS_NAME = {
-  knit: '上针', purl: '下针',
-  tws: '上针的扭针', twist: '上针的扭针', twp: '扭针',
+/* 反面行实际织法的符号 id 映射（正面 id → 反面 id）。
+   图解画的是正面外观，反面行针织动作互换：下针↔上针；扭针(tws)↔上针的扭针(twp)。
+   文字解分组的 sid 一律用「实际织法符号 id」——背景针正面=purl、反面=knit，
+   教程图按 sid 直查即可，不依赖显示名（按名匹配会挂错图）。
+   未列入的符号（交叉针等）正反面通用，sid 保持不变。 */
+export const WS_SYM = {
+  knit: 'purl', purl: 'knit',
+  tws: 'twp', twp: 'tws',
 };
 
 export function symTextName(symId, customSymbols) {
@@ -39,15 +43,16 @@ export function chartToTextRows(st) {
     let cur = null;
     const step = c => {
       const p = cell.get(c);
-      let name, sid;
-      if (!p) { name = ws ? '下针' : '上针'; sid = null; } // 背景针无符号 id，教程按 NAME_TUT 名称映射
-      else {
+      let sid;
+      if (!p) {
+        // 背景针：正面行织上针(purl)、反面行织下针(knit)——同样绑定实际织法符号 id
+        sid = ws ? 'knit' : 'purl';
+      } else {
         if (emitted.has(p)) return;
         emitted.add(p);
-        sid = p.sym;
-        name = ws ? (WS_NAME[p.sym] || symTextName(p.sym, st.customSymbols))
-                  : symTextName(p.sym, st.customSymbols);
+        sid = ws && WS_SYM[p.sym] ? WS_SYM[p.sym] : p.sym;
       }
+      const name = symTextName(sid, st.customSymbols);
       if (cur && cur.name === name) cur.n++;
       else { cur = { name, n: 1, sid }; groups.push(cur); }
     };

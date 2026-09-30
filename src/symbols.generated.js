@@ -58,154 +58,133 @@ export const SYMBOLS = {
     "svg": "<path d=\"M0.8707 0.5C0.8707 0.622 0.7086 0.7208 0.5086 0.7208C0.3087 0.7208 0.1466 0.622 0.1466 0.5C0.1466 0.378 0.3087 0.2792 0.5086 0.2792C0.7086 0.2792 0.8707 0.378 0.8707 0.5Z\" fill=\"#000000\" stroke=\"none\"/>"
   },
   "ssk": {
-    "name": "左上2目一度",
+    "name": "右上2针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.2069 0.1136L0.7931 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.2069 0.8864L0.4828 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "k2tog": {
-    "name": "右上2目一度",
+    "name": "左上2针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.7931 0.1136L0.2069 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.7931 0.8864L0.5172 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
-  "ss2": {
-    "name": "左上2目一度(幅2)",
-    "cat": "dec",
-    "w": 2,
-    "h": 1,
-    "svg": "<path d=\"M0.2069 0.1136L1.7931 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.2069 0.8864L1 0.5\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
-  },
-  "ks2": {
-    "name": "右上2目一度(幅2)",
-    "cat": "dec",
-    "w": 2,
-    "h": 1,
-    "svg": "<path d=\"M1.7931 0.1136L0.2069 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M1.7931 0.8864L1 0.5\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
-  },
   "sskP": {
-    "name": "左上2目一度(裏)",
+    "name": "上针的右上2针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.2069 0.1136L0.7931 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.2069 0.8864L0.4828 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.6552 0.9545H0.3448\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "k2togP": {
-    "name": "右上2目一度(裏)",
+    "name": "上针的左上2针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.7931 0.1136L0.2069 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.7931 0.8864L0.5172 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.3448 0.9545H0.6552\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "d3c": {
-    "name": "中上3目一度",
+    "name": "中上3针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.4828 0.5227L0.2069 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.7931 0.8864L0.5172 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.1136L0.5 0.9091\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "d3l": {
-    "name": "左上3目一度",
+    "name": "右上3针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.2069 0.1136L0.7931 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.2069 0.8864L0.4828 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455V0.9091\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "d3r": {
-    "name": "右上3目一度",
+    "name": "左上3针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.7931 0.1136L0.2069 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.7931 0.8864L0.5172 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455L0.5 0.9091\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "d4l": {
-    "name": "左上4目一度",
+    "name": "右上4针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.2069 0.1136L0.7931 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.2069 0.8864L0.4828 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455L0.4023 0.9091\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455L0.5977 0.9091\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "d4r": {
-    "name": "右上4目一度",
+    "name": "左上4针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.7931 0.1136L0.2069 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.7931 0.8864L0.5172 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455L0.5977 0.9091\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455L0.4023 0.9091\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "d5c": {
-    "name": "中上5目一度",
+    "name": "中上5针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.7931 0.8864L0.5172 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.1136L0.5 0.9091\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455L0.645 0.9054\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455L0.355 0.9054\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.2069 0.8864L0.4828 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "d5l": {
-    "name": "左上5目一度",
+    "name": "右上5针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.2069 0.1136L0.7931 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.2069 0.8864L0.4828 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455V0.9091\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455L0.355 0.9054\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455L0.645 0.9054\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "d5r": {
-    "name": "右上5目一度",
+    "name": "左上5针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.7931 0.1136L0.2069 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.7931 0.8864L0.5172 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455V0.9091\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455L0.645 0.9054\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.5455L0.355 0.9054\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "d6l": {
-    "name": "左上6目一度",
+    "name": "右上6针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.1897 0.548L0.5 0.2273\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.8103 0.548L0.3681 0.0909\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.4259 0.701C0.428 0.6379 0.4324 0.6118 0.4427 0.58C0.4569 0.5362 0.4815 0.5141 0.5134 0.5141C0.5483 0.5141 0.5655 0.5345 0.5759 0.5669C0.5793 0.5766 0.5854 0.58 0.5918 0.58C0.5953 0.58 0.5987 0.5786 0.6018 0.5777C0.6086 0.5743 0.6147 0.5664 0.6147 0.5561C0.6147 0.5527 0.6143 0.5493 0.6125 0.5453C0.5957 0.4987 0.5664 0.4675 0.5151 0.4675C0.4298 0.4675 0.3884 0.5567 0.3884 0.7044C0.3884 0.8499 0.4349 0.9266 0.513 0.9266C0.5828 0.9266 0.6259 0.8618 0.6259 0.7743C0.6259 0.6868 0.5828 0.6294 0.5164 0.6294C0.4755 0.6294 0.4436 0.6556 0.4259 0.701ZM0.513 0.6749C0.5569 0.6749 0.5862 0.7141 0.5862 0.7743C0.5862 0.8368 0.5569 0.8794 0.5117 0.8794C0.4681 0.8794 0.4354 0.8357 0.4354 0.776C0.4354 0.7181 0.4677 0.6749 0.513 0.6749Z\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "d6r": {
-    "name": "右上6目一度",
+    "name": "左上6针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.8103 0.548L0.5 0.2273\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.1897 0.548L0.6319 0.0909\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.4194 0.701C0.4215 0.6379 0.4258 0.6118 0.4362 0.58C0.4504 0.5362 0.475 0.5141 0.5069 0.5141C0.5418 0.5141 0.559 0.5345 0.5694 0.5669C0.5728 0.5766 0.5789 0.58 0.5853 0.58C0.5888 0.58 0.5922 0.5786 0.5952 0.5777C0.6021 0.5743 0.6082 0.5664 0.6082 0.5561C0.6082 0.5527 0.6077 0.5493 0.606 0.5453C0.5892 0.4987 0.5599 0.4675 0.5086 0.4675C0.4232 0.4675 0.3819 0.5567 0.3819 0.7044C0.3819 0.8499 0.4284 0.9266 0.5064 0.9266C0.5763 0.9266 0.6194 0.8618 0.6194 0.7743C0.6194 0.6868 0.5763 0.6294 0.5099 0.6294C0.4689 0.6294 0.437 0.6556 0.4194 0.701ZM0.5064 0.6749C0.5504 0.6749 0.5797 0.7141 0.5797 0.7743C0.5797 0.8368 0.5504 0.8794 0.5051 0.8794C0.4616 0.8794 0.4289 0.8357 0.4289 0.776C0.4289 0.7181 0.4612 0.6749 0.5064 0.6749Z\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
-  "d7c": {
-    "name": "中上7目一度",
-    "cat": "dec",
-    "w": 1,
-    "h": 1,
-    "svg": "<path d=\"M0.1897 0.548L0.5 0.0935\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.8103 0.548L0.5 0.0935\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.575 0.5266C0.5211 0.63 0.4776 0.7612 0.4556 0.8908C0.4552 0.8931 0.4548 0.8958 0.4548 0.8981C0.4548 0.9129 0.4643 0.9209 0.4763 0.9214C0.4768 0.9214 0.4772 0.9214 0.4776 0.9214C0.4888 0.9214 0.497 0.9152 0.5 0.897C0.5229 0.7578 0.5604 0.6362 0.6086 0.5493C0.6173 0.5339 0.6229 0.5254 0.6229 0.505C0.6229 0.4862 0.616 0.476 0.5996 0.476H0.4009C0.3897 0.476 0.3836 0.4873 0.3836 0.5016C0.3836 0.5158 0.3897 0.5266 0.4009 0.5266Z\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
-  },
   "d7l": {
-    "name": "左上7目一度",
+    "name": "右上7针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.1897 0.548L0.5 0.2273\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.8103 0.548L0.3681 0.0909\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.575 0.5266C0.5211 0.63 0.4776 0.7612 0.4556 0.8908C0.4552 0.8931 0.4548 0.8958 0.4548 0.8981C0.4548 0.9129 0.4643 0.9209 0.4763 0.9214C0.4768 0.9214 0.4772 0.9214 0.4776 0.9214C0.4888 0.9214 0.497 0.9152 0.5 0.897C0.5229 0.7578 0.5604 0.6362 0.6086 0.5493C0.6173 0.5339 0.6229 0.5254 0.6229 0.505C0.6229 0.4862 0.616 0.476 0.5996 0.476H0.4009C0.3897 0.476 0.3836 0.4873 0.3836 0.5016C0.3836 0.5158 0.3897 0.5266 0.4009 0.5266Z\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "d7r": {
-    "name": "右上7目一度",
+    "name": "左上7针并1针",
     "cat": "dec",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.8103 0.548L0.5 0.2273\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.1897 0.548L0.6319 0.0909\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5685 0.5266C0.5146 0.63 0.4711 0.7612 0.4491 0.8908C0.4487 0.8931 0.4482 0.8958 0.4482 0.8981C0.4482 0.9129 0.4577 0.9209 0.4698 0.9214C0.4702 0.9214 0.4707 0.9214 0.4711 0.9214C0.4823 0.9214 0.4905 0.9152 0.4935 0.897C0.5164 0.7578 0.5539 0.6362 0.6021 0.5493C0.6107 0.5339 0.6164 0.5254 0.6164 0.505C0.6164 0.4862 0.6095 0.476 0.5931 0.476H0.3944C0.3832 0.476 0.3771 0.4873 0.3771 0.5016C0.3771 0.5158 0.3832 0.5266 0.3944 0.5266Z\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "inL": {
-    "name": "左増し目",
+    "name": "左加针",
     "cat": "inc",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.1897 0.2955L0.4828 0.5\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.8864L0.5 0.1136\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "inR": {
-    "name": "右増し目",
+    "name": "右加针",
     "cat": "inc",
     "w": 1,
     "h": 1,
     "svg": "<path d=\"M0.8103 0.2955L0.5172 0.5\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.8864L0.5 0.1136\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "in3": {
-    "name": "1目から3目",
+    "name": "1针放3针的加针",
     "cat": "inc",
     "w": 1,
     "h": 1,
@@ -324,14 +303,14 @@ export const SYMBOLS = {
     "svg": "<path d=\"M3.7931 0.1136L1.5172 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M2.8621 0.5682L3.7931 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M2.4493 0.7041L2.9828 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M2.4828 0.1136L0.2069 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M1.1379 0.4318L0.2069 0.1136\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M1.5507 0.2959L1.0172 0.1136\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "c22LP": {
-    "name": "右上2针交叉(下侧为上针)",
+    "name": "右上2针交叉(中间织1针上针)",
     "cat": "cable",
     "w": 4,
     "h": 1,
     "svg": "<path d=\"M0.2069 0.1136L2.4828 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M1.1379 0.5682L0.2069 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M1.5507 0.7041L1.0172 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.6379 0.8864H0.931\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M1.5172 0.1136L3.7931 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M2.8621 0.4318L3.7931 0.1136\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M2.4493 0.2959L2.9828 0.1136\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M1.4483 0.8864H1.7414\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   },
   "c22RP": {
-    "name": "左上2针交叉(下侧为上针)",
+    "name": "左上2针交叉(中间织1针上针)",
     "cat": "cable",
     "w": 4,
     "h": 1,
@@ -364,55 +343,6 @@ export const SYMBOLS = {
     "w": 6,
     "h": 1,
     "svg": "<path d=\"M5.8793 0.1136L1.5345 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M5.2241 0.1136L0.8793 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M4.569 0.1136L0.2241 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.2241 0.1136L1.7838 0.4318\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.8793 0.1136L2.1048 0.3636\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M1.5345 0.1136L2.4254 0.2954\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M4.3196 0.5682L5.8793 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M3.9987 0.6364L5.2241 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M3.6781 0.7045L4.569 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M3.8448 0.8864H4.1379\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M4.5 0.8864H4.7931\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M5.1552 0.8864H5.4483\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
-  },
-  "slip": {
-    "name": "すべり目(2段)",
-    "cat": "slip",
-    "w": 1,
-    "h": 2,
-    "svg": "<path d=\"M0.1034 0.1136L0.5 1.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.8966 0.1136L0.5 1.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
-  },
-  "slipf": {
-    "name": "すべり目・手前(2段)",
-    "cat": "slip",
-    "w": 1,
-    "h": 2,
-    "svg": "<path d=\"M0.1034 0.1136L0.5 1.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.8966 0.1136L0.5 1.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.1034 0.7273H0.8966\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
-  },
-  "dip": {
-    "name": "引き上げ目(2段)",
-    "cat": "slip",
-    "w": 1,
-    "h": 2,
-    "svg": "<path d=\"M0.2069 1.8864V0.5C0.2069 0.2866 0.3381 0.1136 0.5 0.1136C0.6619 0.1136 0.7931 0.2866 0.7931 0.5V1.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
-  },
-  "dipP": {
-    "name": "引き上げ目(裏・2段)",
-    "cat": "slip",
-    "w": 1,
-    "h": 2,
-    "svg": "<path d=\"M0.2069 1.8864V0.5C0.2069 0.2866 0.3381 0.1136 0.5 0.1136C0.6619 0.1136 0.7931 0.2866 0.7931 0.5V1.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.6552 1.9091H0.3448\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
-  },
-  "dipT": {
-    "name": "ねじり引き上げ目(2段)",
-    "cat": "slip",
-    "w": 1,
-    "h": 2,
-    "svg": "<path d=\"M0.2069 1.9318V1.0909C0.2069 0.8775 0.3381 0.7045 0.5 0.7045C0.6619 0.7045 0.7931 0.8775 0.7931 1.0909V1.9318\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.7241 0.4091C0.7241 0.5723 0.6238 0.7046 0.5 0.7045C0.3762 0.7046 0.2759 0.5723 0.2759 0.4091C0.2759 0.2459 0.3762 0.1136 0.5 0.1136C0.6238 0.1136 0.7241 0.2459 0.7241 0.4091Z\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
-  },
-  "dec3": {
-    "name": "中上3目一度",
-    "cat": "dec",
-    "w": 1,
-    "h": 1,
-    "svg": "<path d=\"M0.4828 0.5227L0.2069 0.8864\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.7931 0.8864L0.5172 0.5227\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.5 0.1136L0.5 0.9091\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
-  },
-  "twist": {
-    "name": "扭针",
-    "cat": "basic",
-    "w": 1,
-    "h": 1,
-    "svg": "<path d=\"M0.3248 0.8864C0.377 0.8786 0.4569 0.8515 0.5 0.7955C0.5257 0.762 0.5767 0.7049 0.6073 0.624C0.6268 0.5724 0.6475 0.5131 0.6475 0.4318C0.6475 0.2936 0.6093 0.1141 0.5 0.1136\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M0.6752 0.8864C0.623 0.8786 0.5431 0.8515 0.5 0.7955C0.4743 0.762 0.4233 0.7049 0.3927 0.624C0.3732 0.5724 0.3525 0.5131 0.3525 0.4318C0.3525 0.2936 0.3907 0.1141 0.5 0.1136\" fill=\"none\" stroke=\"#111\" stroke-width=\"0.07\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
   }
 };
 export const PALETTE_ORDER = [
@@ -426,8 +356,6 @@ export const PALETTE_ORDER = [
   "bindOff",
   "ssk",
   "k2tog",
-  "ss2",
-  "ks2",
   "sskP",
   "k2togP",
   "d3c",
@@ -440,7 +368,6 @@ export const PALETTE_ORDER = [
   "d5r",
   "d6l",
   "d6r",
-  "d7c",
   "d7l",
   "d7r",
   "inL",
@@ -467,10 +394,5 @@ export const PALETTE_ORDER = [
   "c33L",
   "c33R",
   "c33LP",
-  "c33RP",
-  "slip",
-  "slipf",
-  "dip",
-  "dipP",
-  "dipT"
+  "c33RP"
 ];

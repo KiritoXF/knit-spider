@@ -2,7 +2,7 @@
 import {
   state, addWork, renameWork, deleteWork, switchWork, switchChart,
 } from '../store.js';
-import { ui, withLoading } from '../ui.js';
+import { ui, withLoading, appConfirm, appPrompt } from '../ui.js';
 
 function openWork(w) {
   withLoading(() => { switchWork(w.id); ui.view = 'editor'; });
@@ -10,19 +10,23 @@ function openWork(w) {
 function openChart(w, c) {
   withLoading(() => { switchWork(w.id); switchChart(c.id); ui.view = 'editor'; });
 }
-function onAdd() {
-  const t = prompt('新作品名称：', '');
+async function onAdd() {
+  const t = await appPrompt({ title: '新建作品', placeholder: '作品名称（留空自动命名）', okText: '创建' });
   if (t === null) return;
-  withLoading(() => { addWork(t); ui.view = 'editor'; }); // 留空自动命名
+  withLoading(() => addWork(t)); // 留空自动命名；建完留在首页，新卡片直接出现在网格里
 }
-function onRename(w) {
-  const t = prompt('重命名作品：', w.name);
+async function onRename(w) {
+  const t = await appPrompt({ title: '重命名作品', value: w.name, okText: '保存' });
   if (t === null) return;
   renameWork(w.id, t);
 }
-function onDelete(w) {
-  if (!confirm(`删除作品「${w.name}」及其下 ${w.charts.length} 张图解？不可恢复。`)) return;
-  withLoading(() => deleteWork(w.id));
+async function onDelete(w) {
+  const ok = await appConfirm({
+    title: '删除作品',
+    message: `删除「${w.name}」及其下 ${w.charts.length} 张图解？\n此操作不可恢复。`,
+    okText: '删除', danger: true,
+  });
+  if (ok) withLoading(() => deleteWork(w.id));
 }
 function fmtTime(t) {
   if (!t) return '';
@@ -37,15 +41,16 @@ function fmtTime(t) {
 <template>
   <div class="home">
     <header class="home-top">
-      <div class="flex items-center gap-2">
-        <span class="text-xl">🧶</span>
-        <h1 class="text-base font-bold">蜘蛛织毛线</h1>
-        <span class="text-xs text-gray-400">{{ state.works.length }} 部作品</span>
+      <div class="home-brand">
+        <span class="home-brand-logo">🧶</span>
+        <h1>蜘蛛织毛线</h1>
+        <span class="home-count">{{ state.works.length }} 部作品</span>
       </div>
       <div class="flex items-center gap-2">
         <button id="btnHomeTutor" class="tb-btn" title="管理织法教程图（按符号上传图片，随作品 zip 分享）"
           @click="ui.tutorialOpen = true">🧵 教程图</button>
-        <button id="btnHomeAdd" class="tb-btn-primary" @click="onAdd">＋ 新建作品</button>
+        <button id="btnHomeSymbols" class="tb-btn" title="符号库：移除不用的符号 / 删除自定义符号"
+          @click="ui.symbolOpen = true">🧩 符号库</button>
       </div>
     </header>
 
@@ -60,9 +65,20 @@ function fmtTime(t) {
             </div>
           </div>
           <div class="flex gap-1 flex-none" @click.stop>
-            <button class="wc-btn" title="重命名" @click="onRename(w)">✎</button>
-            <button class="wc-btn" title="删除" :disabled="state.works.length <= 1"
-              @click="onDelete(w)">🗑</button>
+            <button class="wc-btn" title="重命名" @click="onRename(w)">
+              <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
+                <path d="m15 5 4 4"/>
+              </svg>
+            </button>
+            <button class="wc-btn" title="删除" :disabled="state.works.length <= 1" @click="onDelete(w)">
+              <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>
+              </svg>
+            </button>
           </div>
         </div>
         <div v-if="w.charts.length" class="wc-chips">
@@ -73,5 +89,10 @@ function fmtTime(t) {
 
       <button class="work-card wc-new" @click="onAdd">＋ 新建作品</button>
     </div>
+
+    <footer class="home-foot">
+      <span>© 2026 蜘蛛织毛线 ·
+        <a href="https://github.com/KiritoXF/knit-spider" target="_blank" rel="noopener noreferrer">KiritoXF</a></span>
+    </footer>
   </div>
 </template>

@@ -9,7 +9,7 @@ import {
   activeWork, activeChart, addChart, switchChart, renameChart, deleteChart,
   addWork, deleteWork, serializeWork, importJson, importArchive, buildWorkZip, load, save,
 } from './store.js';
-import { putTutorial, deleteTutorial, tutorialObjectUrl } from './tutorialStore.js';
+import { putTutorial, deleteTutorial, tutorialObjectUrl, tutorialU8Entries } from './tutorialStore.js';
 import { ui, ed } from './ui.js';
 import { chartToTextRows } from './textChart.js';
 import { tutorialUrlForGroup, tutorialUrlForSid } from './tutorials.js';
@@ -509,7 +509,7 @@ export async function runSelfTest() {
       { sym: 'purl', col: 1, row: 1, w: 1, h: 1 },
       { sym: 'tws', col: 2, row: 1, w: 1, h: 1 },
       { sym: 'knit', col: 0, row: 2, w: 1, h: 1 },
-      { sym: 'twist', col: 1, row: 2, w: 1, h: 1 },
+      { sym: 'tws', col: 1, row: 2, w: 1, h: 1 },
     ];
     await tick();
     const rows = chartToTextRows(state);
@@ -521,14 +521,22 @@ export async function runSelfTest() {
     state.rowStartSide = 'right';
     const ok3 = rowsL[0].ws && rowsL[0].text === 'r1（反面）：1上针，1下针，1上针的扭针，3下针' &&
       !rowsL[1].ws && rowsL[1].text === 'r2：4上针，1扭针，1下针';
-    // 分组带符号 id（背景针 null），教程按 sid/名称别名解析（未配置返回 null）
+    // 分组 sid = 实际织法符号 id：背景针正面 purl / 反面 knit；反面符号经 WS_SYM 映射
+    // （r1 正面：空白×3→purl、tws→tws、purl→purl、knit→knit；
+    //  r2 反面：knit→purl、tws→twp、空白×4→knit）
     const sidOk =
-      JSON.stringify(rows[0].groups.map(g => g.sid)) === JSON.stringify([null, 'tws', 'purl', 'knit']) &&
-      JSON.stringify(rows[1].groups.map(g => g.sid)) === JSON.stringify(['knit', 'twist', null]);
+      JSON.stringify(rows[0].groups.map(g => g.sid)) === JSON.stringify(['purl', 'tws', 'purl', 'knit']) &&
+      JSON.stringify(rows[1].groups.map(g => g.sid)) === JSON.stringify(['purl', 'twp', 'knit']);
     // c22L 已无内置教程图：未配置返回 null（本机若上传过则是 objectURL）
     const c22 = tutorialUrlForSid('c22L');
+    // 教程纯按 sid 解析：分组 sid 与直查结果一致；无 sid/空组返回 null
+    const purlUrl = tutorialUrlForSid('purl');
+    const twpUrl = tutorialUrlForSid('twp');
     const tutOk = (c22 === null || String(c22).indexOf('blob:') === 0) &&
-      tutorialUrlForGroup({ sid: null, name: '上针' }) === null; // purl 未配置教程图
+      tutorialUrlForGroup({ sid: 'purl', name: '上针' }) === purlUrl &&
+      tutorialUrlForGroup({ sid: 'twp', name: '上针的扭针' }) === twpUrl &&
+      tutorialUrlForGroup({ sid: null, name: '上针' }) === null &&
+      tutorialUrlForGroup(null) === null;
     resetStateForTest();
     await tick();
     return ok1 && ok2 && ok3 && sidOk && tutOk;
@@ -558,6 +566,7 @@ export async function runSelfTest() {
 
   await t('zip-roundtrip', async () => {
     // 作品 zip 导出/导入往返：work.json + 用户教程图打包，导入后作品与教程图都还原
+    window.__zipDetail = null;
     try {
       resetStateForTest(); await tick();
       const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
@@ -567,16 +576,23 @@ export async function runSelfTest() {
       const saved = JSON.parse(strFromU8(entries['work.json']));
       const okZip = !!entries['work.json'] && !!entries['tutorials/zztest.png'] &&
         saved.version === 2 && saved.works.length === 1;
+      // zip 里带的是整个本机教程库（含既有上传），条数不定，按实际数量比对
+      const nTut = (await tutorialU8Entries()).length;
       const nWorks0 = state.works.length;
       const res = await importArchive(new Blob([u8], { type: 'application/zip' }));
-      const okImp = res.works === 1 && res.charts >= 1 && res.tutorials === 1 &&
+      const okImp = res.works === 1 && res.charts >= 1 && res.tutorials === nTut &&
         state.works.length === nWorks0 + 1 &&
         String(tutorialObjectUrl('zztest')).indexOf('blob:') === 0;
       // 缺 work.json 的 zip 应报错
       let okErr = false;
       try { await importArchive(new Blob([zipSync({ 'other.txt': strToU8('x') })])); }
       catch (e) { okErr = true; }
+      if (!(okZip && okImp && okErr))
+        window.__zipDetail = JSON.stringify({ okZip, okImp, okErr, nTut, nWorks0, res, aw: !!activeWork() });
       return okZip && okImp && okErr;
+    } catch (e) {
+      window.__zipDetail = 'THROW: ' + String(e && e.stack || e);
+      return false;
     } finally {
       await deleteTutorial('zztest'); // 清理，不污染本机教程库
       resetStateForTest(); await tick();

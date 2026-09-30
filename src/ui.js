@@ -6,8 +6,55 @@ export const ui = reactive({
   loading: false,    // 切换作品/图解时的全屏 loading 遮罩
   editorOpen: false,
   textChartOpen: false, // 文字解弹窗
+  helpOpen: false,      // 操作说明浮层
   tutorialOpen: false,  // 织法教程图管理弹窗（本机上传库）
+  symbolOpen: false,    // 符号库管理弹窗（移除 / 删除符号，只在首页使用）
+  toasts: [],        // 轻提示队列 [{id,msg,tone}] tone: 'ok'|'warn'|'info'
 });
+
+/* ---- 轻提示 toast：右下角，2.6s 自动消失 ---- */
+let toastSeq = 0;
+export function toast(msg, tone = 'info') {
+  const id = ++toastSeq;
+  ui.toasts.push({ id, msg, tone });
+  setTimeout(() => {
+    const i = ui.toasts.findIndex(t => t.id === id);
+    if (i >= 0) ui.toasts.splice(i, 1);
+  }, 2600);
+}
+
+/* ---- 应用内对话框（替代原生 prompt/confirm）：Promise 化 ----
+   appConfirm → resolve(true/false)；appPrompt → resolve(输入串/null)。
+   注意 AppDialog.vue 的 document 键盘监听负责 Enter/Esc 提交。 */
+export const dlg = reactive({
+  open: false, mode: 'confirm', // 'confirm' | 'prompt'
+  title: '', message: '', value: '', placeholder: '',
+  okText: '确定', danger: false, _res: null,
+});
+export function appConfirm(o) {
+  return new Promise(res => {
+    Object.assign(dlg, {
+      mode: 'confirm', title: o.title || '确认', message: o.message || '',
+      value: '', placeholder: '', okText: o.okText || '确定',
+      danger: !!o.danger, open: true, _res: res,
+    });
+  });
+}
+export function appPrompt(o) {
+  return new Promise(res => {
+    Object.assign(dlg, {
+      mode: 'prompt', title: o.title || '输入', message: o.message || '',
+      value: o.value || '', placeholder: o.placeholder || '',
+      okText: o.okText || '确定', danger: !!o.danger, open: true, _res: res,
+    });
+  });
+}
+export function dlgSettle(v) {
+  if (!dlg.open) return;
+  dlg.open = false;
+  const r = dlg._res; dlg._res = null;
+  if (r) r(v);
+}
 
 /* 重活（切换/新建图解会触发大面积 SVG 重渲染）延后到遮罩画完再执行：
    先显示 loading → 30ms 后真正切换 → 渲染完成后关闭遮罩 */

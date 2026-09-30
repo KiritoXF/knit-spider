@@ -1,7 +1,7 @@
 import { reactive } from 'vue';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { SYMBOLS, PALETTE_ORDER } from './symbols.js';
-import { ui, ed, resetEditor } from './ui.js';
+import { ui, ed, resetEditor, toast } from './ui.js';
 import { tutorialU8Entries, importTutorials } from './tutorialStore.js';
 
 export const LS_KEY = 'knitChartProto1';
@@ -296,7 +296,8 @@ export const clipBoard = reactive({
 });
 let infoTimer = null;
 function flashInfo(text) {
-  clipBoard.info = text;
+  // clipBoard.info = text;
+  toast(text, 'info'); // 右下角轻提示同步展示（工具栏一次性提示保留原逻辑）
   clearTimeout(infoTimer);
   infoTimer = setTimeout(() => { clipBoard.info = ''; }, 2500);
 }
@@ -404,9 +405,10 @@ export function load() {
   try {
     const s = JSON.parse(localStorage.getItem(LS_KEY));
     if (s && s.version === 2 && Array.isArray(s.works) && s.works.length) {
-      state.customSymbols = (Array.isArray(s.customSymbols) ? s.customSymbols : []).map(c => ({
-        ...c, shapes: Array.isArray(c.shapes) ? c.shapes.map(sh => ({ ...sh })) : [],
-      }));
+      state.customSymbols = (Array.isArray(s.customSymbols) ? s.customSymbols : [])
+        .filter(Boolean).map(c => ({
+          ...c, shapes: Array.isArray(c.shapes) ? c.shapes.map(sh => ({ ...sh })) : [],
+        }));
       state.hiddenSymbols = Array.isArray(s.hiddenSymbols) ? [...s.hiddenSymbols] : [];
       state.favorites = Array.isArray(s.favorites) ? [...s.favorites] : [];
       state.activeCats = (Array.isArray(s.activeCats) && s.activeCats.every(c => typeof c === 'string'))
@@ -415,7 +417,7 @@ export function load() {
       const taken = [];
       for (const wIn of s.works) {
         const w = sanitizeWorkIn(wIn, taken);
-        if (w.charts.length) state.works.push(w);
+        if (w && w.charts.length) state.works.push(w); // 跳过损坏的 null 条目，避免 load 半途抛错
       }
       if (!state.works.length) { ensureSkeleton(); return; }
       pruneMissingSymbolsAll();
@@ -565,11 +567,11 @@ export async function saveJson() {
    供 saveJson 与自测使用；纯数据组装，不弹对话框 */
 export async function buildWorkZip() {
   const files = { 'work.json': strToU8(JSON.stringify(serializeWork(), null, 2)) };
+  const EXT = { 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif' };
   for (const t of await tutorialU8Entries()) {
-    let base = String(t.name || '').split(/[\\/]/).pop() || '';
-    if (!/^[^/\\]+\.[^/\\]+$/.test(base)) base = sanitizeFileName(t.sid) + '.png';
-    const path = 'tutorials/' + (sanitizeFileName(base) || sanitizeFileName(t.sid) + '.png');
-    files[path] = t.u8;
+    if (!t.u8 || !t.u8.length) continue;
+    /* 按符号 id 命名：sid 唯一，同名原始文件不会互相覆盖，导入时也能精确还原 sid */
+    files['tutorials/' + sanitizeFileName(t.sid) + (EXT[t.type] || '.png')] = t.u8;
   }
   return zipSync(files);
 }

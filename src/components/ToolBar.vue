@@ -1,9 +1,10 @@
 <script setup>
 import { onMounted, onUnmounted } from 'vue';
 import {
-  state, selectTool, setZoom, undo, redo, histState,
+  state, selectTool, undo, redo, histState,
   copySelection, deleteSelection, addAnnotation, clipSel, clipBoard,
 } from '../store.js';
+import { appPrompt, toast } from '../ui.js';
 
 function onCopy() {
   if (!clipSel.rect) { flashHint('请先用“框选”选中要复制的区域'); return; }
@@ -13,9 +14,13 @@ function onDelete() {
   if (!clipSel.rect) return;
   deleteSelection();
 }
-function onAnnotate() {
+async function onAnnotate() {
   if (!clipSel.rect) return;
-  const t = prompt('标注内容（如：花样A · 12针重复）：', '');
+  const t = await appPrompt({
+    title: '区域标注',
+    message: '给框选区域添加文字标注，显示在区域上方。',
+    placeholder: '如：花样A · 12针重复',
+  });
   if (t === null) return;
   addAnnotation(t);
 }
@@ -23,7 +28,7 @@ function onPaste() {
   if (!clipBoard.data) return;
   selectTool('paste');
 }
-function flashHint(text) { clipBoard.info = text; }
+function flashHint(text) { clipBoard.info = text; toast(text, 'info'); }
 
 /* 全局快捷键：Ctrl+Z / Ctrl+Y(或 Ctrl+Shift+Z) / Ctrl+C / Ctrl+V / Delete / Esc */
 function onKey(e) {
@@ -75,9 +80,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
         </svg>边框</button>
     </div>
 
+    <span class="tb-sep"></span>
+
     <!-- 剪贴板组 -->
     <div class="tb-group">
-      <span class="tb-label">剪贴板</span>
       <button id="btnCopy" class="tb-btn" title="复制选区内容（Ctrl+C）"
         :disabled="!clipSel.rect" @click="onCopy">
         <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -93,7 +99,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
           <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
           <path d="M10 11v6"/><path d="M14 11v6"/>
-        </svg>删除选区</button>
+        </svg>删除</button>
       <button id="btnAnnotate" class="tb-btn" title="给框选区域添加文字标注（显示在区域上方）；用消去工具或右键点区域内可删除"
         :disabled="!clipSel.rect" @click="onAnnotate">
         <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -109,12 +115,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
           <rect x="8" y="2" width="8" height="4" rx="1"/>
           <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
         </svg>粘贴</button>
-      <span v-if="clipBoard.info" class="text-[11px] text-blue-600">{{ clipBoard.info }}</span>
+      <span v-if="clipBoard.info" class="text-[11px] text-rose-600">{{ clipBoard.info }}</span>
     </div>
+
+    <span class="tb-sep"></span>
 
     <!-- 历史组 -->
     <div class="tb-group">
-      <span class="tb-label">历史</span>
       <button id="btnUndo" class="tb-btn" title="撤销（Ctrl+Z）"
         :disabled="!histState.canUndo" @click="undo">
         <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -129,14 +136,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
           <path d="m15 14 5-5-5-5"/>
           <path d="M20 9H9.5a5.5 5.5 0 0 0-5.5 5.5v0a5.5 5.5 0 0 0 5.5 5.5H13"/>
         </svg>重做</button>
-    </div>
-
-    <!-- 缩放组 -->
-    <div class="tb-group">
-      <span class="tb-label">缩放</span>
-      <input id="zoom" type="range" min="0.5" max="2.5" step="0.1"
-        class="w-24" :value="state.zoom"
-        @input="setZoom(+($event.target.value))">
     </div>
   </div>
 </template>
