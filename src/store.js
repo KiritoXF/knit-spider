@@ -2,7 +2,7 @@ import { reactive } from 'vue';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { SYMBOLS, PALETTE_ORDER } from './symbols.js';
 import { ui, ed, resetEditor, toast } from './ui.js';
-import { tutorialU8Entries, importTutorials } from './tutorialStore.js';
+import { tutorialU8Entries, tutorialTextEntries, importTutorials, importTutorialTexts } from './tutorialStore.js';
 
 export const LS_KEY = 'knitChartProto1';
 
@@ -10,7 +10,7 @@ export const state = reactive({
   /* ---- 作品 / 图解两级结构 ----
      Work  {id, name, charts: [Chart]}
      Chart {id, name, rows, cols, rowStartSide, colLabels,
-            placements, borders, annotations}
+            placements, borders, annotations, doneRows}
      下面 rows..annotations 这些顶层字段是"当前图解"的编辑投影，
      切换图解/作品时通过 projectActive / syncActiveChart 双向同步 */
   works: [],
@@ -23,18 +23,63 @@ export const state = reactive({
   customSymbols: [],   // {id, name, w, h, shapes:[{type,...color,w}]}
   hiddenSymbols: [],   // 从符号面板移除的内置符号 id（可恢复；已放到图上的不受影响）
   highlight: null,
+  doneRows: 0,         // 已织完行数（0..rows），当前待织行 = doneRows + 1
+                       // 仅记录织进度：不进撤销指纹，也不刷新「最后更改」
   zoom: 1,
   rowStartSide: 'right',  // 第 1 行行号位置：'right' 右侧（从右往左织）| 'left' 左侧
   colLabels: {},       // {'列索引': '显示文本'}，未设置则不显示
   favorites: [],       // 标记为"常用"的符号 id（仅本机 UI 偏好，不进撤销与 JSON 存档）
   activeCats: ['all'], // 符号面板分类筛选（仅本机 UI 偏好，不进撤销与 JSON 存档）
+  theme: 'sage',       // 配色主题 id（见 THEMES；仅本机偏好，不进作品树与 JSON 存档）
   tool: 'knit',        // 'erase' | 'border' | 'select' | 'paste' | 符号 id
 });
+
+/* ---------------- 主题（配色） ----------------
+   色值一律不写在 JS 里：style.css 用 --acc-* 定义四套调色板，
+   在 <html> 上挂 data-theme 即整站换色（组件里的 Tailwind rose-* 类
+   经 @theme 重映射到 --acc-*，所以切主题不需要动任何 .vue）。
+   这里只负责"当前是哪套"+ 落盘 */
+export const THEMES = [
+  { id: 'sage', name: '苔绿', desc: '低饱和冷绿 · 默认' },
+  { id: 'rose', name: '玫红', desc: '暖纸缝线 · 最初的配色' },
+  { id: 'mist', name: '雾霾蓝', desc: '冷静蓝灰，最不挑环境光' },
+  { id: 'mauve', name: '灰玫瑰', desc: '暖灰偏藕，比玫红沉' },
+];
+export function themeName(id) {
+  const t = THEMES.find(t => t.id === id);
+  return t ? t.name : THEMES[0].name;
+}
+function applyTheme() {
+  document.documentElement.dataset.theme = state.theme;
+}
+export function setTheme(id) {
+  if (id === state.theme || !THEMES.some(t => t.id === id)) return;
+  state.theme = id;
+  applyTheme();
+  save();
+}
+applyTheme(); // 启动即应用（此时是默认值，load() 恢复用户选择后会再应用一次）
 
 /* ---------------- 作品 / 图解管理 ---------------- */
 let idSeq = 0;
 function genId(prefix) {
   return prefix + '_' + Date.now().toString(36) + (idSeq++).toString(36) + Math.random().toString(36).slice(2, 5);
+}
+/* 保 id：存档/导入里的旧 id 有效且未被占用就原样保留——作品/图解 id 需跨会话稳定，
+   每次 load 重生成会让依赖 id 的本机数据失联；
+   只有缺失/重复时才发新 id。usedIds 惰性播种自现有作品树，批次内自动累积 */
+let usedIds = null;
+function pickId(old, prefix) {
+  if (!usedIds) {
+    usedIds = new Set();
+    for (const w of state.works) {
+      usedIds.add(w.id);
+      for (const c of w.charts) usedIds.add(c.id);
+    }
+  }
+  const id = (typeof old === 'string' && old && !usedIds.has(old)) ? old : genId(prefix);
+  usedIds.add(id);
+  return id;
 }
 export function activeWork() {
   return state.works.find(w => w.id === state.activeWorkId) || null;
@@ -54,6 +99,7 @@ function syncActiveChart() {
   c.placements = state.placements;
   c.borders = state.borders;
   c.annotations = state.annotations;
+  c.doneRows = state.doneRows;
 }
 /* 活动图解 → 装入编辑投影（切换图解/作品后调用） */
 function projectActive() {
@@ -66,6 +112,7 @@ function projectActive() {
   state.borders = c.borders;
   state.annotations = c.annotations;
   state.highlight = null;
+  state.doneRows = Math.min(state.rows, Math.max(0, Math.round(+c.doneRows) || 0));
   if (state.tool !== 'erase' && state.tool !== 'border' && state.tool !== 'select' &&
       state.tool !== 'paste' && !getSym(state.tool)) state.tool = 'knit';
 }
@@ -84,6 +131,7 @@ function newChart(name, rows = 36, cols = 24) {
     id: genId('c'), name: name || '图解',
     rows, cols, rowStartSide: state.rowStartSide === 'left' ? 'left' : 'right',
     colLabels: {}, placements: [], borders: [], annotations: [], locked: false,
+    doneRows: 0,
     updatedAt: Date.now(), // 最后更改时间（新建即计），随存档保存
   };
 }
@@ -316,6 +364,7 @@ function persistObject() {
     favorites: state.favorites,
     activeCats: state.activeCats,
     zoom: state.zoom, tool: state.tool, highlight: state.highlight,
+    theme: state.theme,
   };
 }
 /* ---------------- 图解最后更改时间 ----------------
@@ -363,12 +412,14 @@ function sanitizeChartIn(c, chosenNames) {
   if (!c || typeof c !== 'object') return null;
   const name = uniqueName(String(c.name || '').trim() || '图解', chosenNames);
   chosenNames.push(name);
+  const rows = Math.min(200, Math.max(4, Math.round(+c.rows) || 36));
+  const cols = Math.min(200, Math.max(4, Math.round(+c.cols) || 24));
   return {
-    id: genId('c'), name,
-    rows: Math.min(200, Math.max(4, Math.round(+c.rows) || 36)),
-    cols: Math.min(200, Math.max(4, Math.round(+c.cols) || 24)),
+    id: pickId(c.id, 'c'), name,
+    rows, cols,
     rowStartSide: c.rowStartSide === 'left' ? 'left' : 'right',
     locked: !!c.locked,
+    doneRows: Math.min(rows, Math.max(0, Math.round(+c.doneRows) || 0)),
     updatedAt: (typeof c.updatedAt === 'number' && c.updatedAt > 0) ? c.updatedAt : Date.now(),
     colLabels: (c.colLabels && typeof c.colLabels === 'object') ? { ...c.colLabels } : {},
     placements: (Array.isArray(c.placements) ? c.placements : []).filter(p => p && p.sym).map(p => ({ ...p })),
@@ -388,7 +439,7 @@ function sanitizeWorkIn(w, chosenWorkNames) {
   const charts = (Array.isArray(w.charts) ? w.charts : [])
     .map(c => sanitizeChartIn(c, chosenCharts)).filter(Boolean);
   return {
-    id: genId('w'),
+    id: pickId(w.id, 'w'),
     name: uniqueName(String(w.name || '').trim() || '作品', chosenWorkNames),
     charts,
     updatedAt: +w.updatedAt || 0,
@@ -414,6 +465,8 @@ export function load() {
       state.activeCats = (Array.isArray(s.activeCats) && s.activeCats.every(c => typeof c === 'string'))
         ? [...s.activeCats] : ['all'];
       if (Number.isFinite(+s.zoom) && +s.zoom >= 0.5 && +s.zoom <= 2.5) state.zoom = +s.zoom;
+      if (THEMES.some(t => t.id === s.theme)) state.theme = s.theme;
+      applyTheme();
       const taken = [];
       for (const wIn of s.works) {
         const w = sanitizeWorkIn(wIn, taken);
@@ -476,6 +529,7 @@ export function serializeChart() {
     placements: JSON.parse(JSON.stringify(state.placements)),
     borders: JSON.parse(JSON.stringify(state.borders)),
     annotations: JSON.parse(JSON.stringify(state.annotations)),
+    doneRows: state.doneRows,
     customSymbols: JSON.parse(JSON.stringify(state.customSymbols)),
     hiddenSymbols: [...state.hiddenSymbols],
   };
@@ -564,6 +618,7 @@ export async function saveJson() {
 }
 
 /* zip 打包：work.json（v2 作品树，与旧 JSON 存档内容一致）+ tutorials/<文件名>。
+   图片按 符号id.<图片扩展名>，文字按 符号id.txt，sid 唯一不会互相覆盖。
    供 saveJson 与自测使用；纯数据组装，不弹对话框 */
 export async function buildWorkZip() {
   const files = { 'work.json': strToU8(JSON.stringify(serializeWork(), null, 2)) };
@@ -573,11 +628,15 @@ export async function buildWorkZip() {
     /* 按符号 id 命名：sid 唯一，同名原始文件不会互相覆盖，导入时也能精确还原 sid */
     files['tutorials/' + sanitizeFileName(t.sid) + (EXT[t.type] || '.png')] = t.u8;
   }
+  for (const t of tutorialTextEntries()) {
+    files['tutorials/' + sanitizeFileName(t.sid) + '.txt'] = strToU8(t.text);
+  }
   return zipSync(files);
 }
 
-/* 载入 zip 作品包：work.json 走 importJson 追加逻辑（失败即抛错，教程图不写入）；
-   tutorials/<符号id>.<ext> 写回本机教程库，无该目录不报错。返回 {works, charts, tutorials} */
+/* 载入 zip 作品包：work.json 走 importJson 追加逻辑（失败即抛错，教程不写入）；
+   tutorials/<符号id>.<图片扩展名> 写回图片、tutorials/<符号id>.txt 写回文字，
+   无这些目录不报错。返回 {works, charts, tutorials, tutorialTexts} */
 export async function importArchive(blob) {
   let entries;
   try {
@@ -588,7 +647,7 @@ export async function importArchive(blob) {
   const workU8 = entries['work.json'];
   if (!workU8) throw new Error('zip 包中缺少 work.json');
   const res = importJson(strFromU8(workU8));
-  const tuts = [];
+  const tuts = [], texts = [];
   for (const path in entries) {
     if (!/^tutorials\/[^/]+$/.test(path)) continue;
     const u8 = entries[path];
@@ -596,6 +655,10 @@ export async function importArchive(blob) {
     const base = path.slice(10);
     const dot = base.lastIndexOf('.');
     const ext = (dot > 0 ? base.slice(dot + 1) : 'png').toLowerCase();
+    if (ext === 'txt') { // 文字说明：文件名即符号 id
+      texts.push({ sid: base.slice(0, dot), text: strFromU8(u8) });
+      continue;
+    }
     tuts.push({
       sid: dot > 0 ? base.slice(0, dot) : base,
       name: base,
@@ -604,7 +667,11 @@ export async function importArchive(blob) {
         ext === 'webp' ? 'image/webp' : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg' : 'image/png',
     });
   }
-  return { ...res, tutorials: await importTutorials(tuts) };
+  return {
+    ...res,
+    tutorials: await importTutorials(tuts),
+    tutorialTexts: await importTutorialTexts(texts),
+  };
 }
 
 /* 导出当前图解（v1 单图解格式，可被旧版工具载入） */
@@ -682,7 +749,9 @@ function applyChartObject(s) {
   state.colLabels = (s.colLabels && typeof s.colLabels === 'object') ? { ...s.colLabels } : {};
   state.rowStartSide = s.rowStartSide === 'left' ? 'left' : 'right';
   state.highlight = null;
-  // 丢弃引用了不存在符号（内置或自定义）的 placement，避免渲染出错
+  /* 织进度不在撤销快照里：快照无 doneRows 字段时保留当前值，只做行数越界收敛 */
+  if ('doneRows' in s) state.doneRows = Math.min(rows, Math.max(0, Math.round(+s.doneRows) || 0));
+  else if (state.doneRows > rows) state.doneRows = rows;
   state.placements = state.placements.filter(p => p && getSym(p.sym));
   if (state.tool !== 'erase' && state.tool !== 'border' && state.tool !== 'select' &&
       state.tool !== 'paste' && !getSym(state.tool)) state.tool = 'knit';
@@ -868,11 +937,13 @@ export function resizeGrid(cols, rows) {
   state.annotations = state.annotations.filter(a => a.col + a.w <= cols && a.row + a.h - 1 <= rows);
   for (const k of Object.keys(state.colLabels)) if (+k >= cols) delete state.colLabels[k];
   if (state.highlight && state.highlight > rows) state.highlight = null;
+  if (state.doneRows > rows) state.doneRows = rows;
   save();
 }
 export function clearAll() {
   if (guardLocked()) return;
   state.placements = []; state.borders = []; state.annotations = []; state.highlight = null;
+  state.doneRows = 0;
   save();
 }
 export function setZoom(v) { state.zoom = v; save(); }
@@ -884,6 +955,20 @@ export function setRowStartSide(v) {
 export function toggleHighlight(r) {
   state.highlight = state.highlight === r ? null : r;
   save();
+}
+
+/* ---------------- 织进度 ----------------
+   doneRows = 已织完的行数（0..rows），当前待织行 = doneRows + 1；
+   行号自下而上编号、织的方向也自下而上，两者天然对齐。
+   织进度记录的是「照图施工」的进度而非图面内容：不进撤销指纹、不刷新
+   「最后更改」，锁定图解也允许推进（见 guardLocked 的调用处都不经过这里） */
+export function setDoneRows(n) {
+  const v = Math.round(+n);
+  state.doneRows = Math.min(state.rows, Math.max(0, Number.isFinite(v) ? v : 0));
+  save();
+}
+export function stepDoneRows(delta) {
+  setDoneRows(state.doneRows + (Math.round(+delta) || 0));
 }
 
 /* ---------------- 图解锁定 ----------------
@@ -952,8 +1037,10 @@ export function resetStateForTest() {
     works: [], activeWorkId: null, activeChartId: null,
     rows: 36, cols: 24, placements: [], borders: [], annotations: [], customSymbols: [],
     hiddenSymbols: [], highlight: null, zoom: 1, rowStartSide: 'right', colLabels: {}, tool: 'knit',
+    doneRows: 0, theme: 'sage',
   });
   ensureSkeleton();
+  applyTheme();
   clipSel.rect = null; clipBoard.data = null; clipBoard.info = '';
   resetHistory();
 }

@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-A fully client-side knitting chart editor for hand knitters: draw grids, place stitch symbols, marquee-select and copy, annotate regions, turn charts into row-by-row written instructions, and attach a how-to knit tutorial image to every stitch — with archiving and export built in. The build output is a single self-contained HTML file: double-click to run offline, no internet required.
+A fully client-side knitting chart editor for hand knitters: draw grids, place stitch symbols, marquee-select and copy, annotate regions, turn charts into row-by-row written instructions, and attach a how-to knit tutorial (image or text notes) to every stitch — with archiving and export built in. The build output is a single self-contained HTML file: double-click to run offline, no internet required.
 
 ![Chart editor](docs/images/editor.png)
 
@@ -17,6 +17,7 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 - Chart tabs: click to switch, double-click to rename inline, delete, create (auto-named "Chart N")
 - Chart locking: one-click lock from the tab bar. When locked, all editing operations (place / erase / paste / annotate / grid resize / undo-redo) are blocked to protect finished charts; a lock icon shows on the tab and the state is saved with the archive
 - Last-changed time: shown permanently at the right end of the top bar. Chart-content operations (place / erase / border / annotation / column labels / grid / undo-redo) update it; non-content operations (lock/unlock, rename, favorite) do not. Saved with the archive
+- Themes: four hand-picked color themes (sage / rose / mist / mauve), switchable from the top bar "More" menu; the choice is remembered locally
 
 ### Canvas
 - Grid up to 200 × 200 cells (stitches × rows), zoom 0.5 – 2.5
@@ -49,9 +50,9 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 ![Written instructions](docs/images/written-instructions.png)
 
 - One click on "Written" in the top bar converts the current chart into row-by-row instructions in a wide, two-column modal:
-  - **Left column**: a quick-reference of every symbol used in this chart (thumbnail + name + usage count, sorted by count descending, dashed underline when a tutorial image exists), copy-all / download txt, and usage tips
+  - **Left column**: a quick-reference of every symbol used in this chart (thumbnail + name + usage count, sorted by count descending, dashed underline when a tutorial — image or text — exists), copy-all / download txt, and usage tips
   - **Right column**: the row-by-row body, with row numbers + WS badge + stitch count at the end of each row
-- Hover a stitch name to pop up its how-to knit tutorial image; click the image to view it full size
+- Hover a stitch name to pop up its how-to knit tutorial — an image, a text note, or both side by side; click the image to view it full size
 - RS / WS rows are derived automatically from the row 1 starting side (consistent with the canvas row-number position): RS rows read right→left as-is; WS rows read left→right with automatic conversion (knit ↔ purl swapped, twists become their purled counterparts, etc.)
 - Blank cells are treated as background stitches (purled on RS rows, knitted on WS rows); consecutive identical stitches merge with a count; row prefix `r3:`, WS rows flagged "WS"
 - File name: `ProjectName_ChartName.txt`
@@ -60,9 +61,9 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 
 ![Stitch tutorial images](docs/images/stitch-tutorials.png)
 
-- Home page "🧵 Tutorials" uploads a how-to image per symbol; images can be replaced / deleted
-- Images live in the local IndexedDB — never uploaded, never online; built-in tutorial images can be placed in `public/tutorials/` (currently empty)
-- Tutorial images are bundled into the "Archive project" zip and automatically restored to the local tutorial library when imported on another machine
+- Home page "🧵 Tutorials" configures, per symbol, a how-to image (upload / replace / delete) and/or a short text note (auto-saved on blur, cleared when emptied); the two are independent — either alone or both together
+- Tutorial images and text notes live in the local IndexedDB — never uploaded, never online; built-in tutorial assets can be placed in `public/tutorials/` (currently empty)
+- Tutorial images and text notes are bundled into the "Archive project" zip (notes as `tutorials/<symbol-id>.txt`) and automatically restored to the local tutorial library when imported on another machine
 
 ### Custom Symbol Editor
 
@@ -73,7 +74,7 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 - Two entry points: home page "🧩 Symbol Library › ＋ New custom symbol", or the chart-page palette "＋ Custom"
 
 ### Save & Export
-- Archive project: packs the whole project as a zip (`ProjectName.zip`) containing `work.json` (v2 format, all charts) and `tutorials/` (local tutorial images as-is)
+- Archive project: packs the whole project as a zip (`ProjectName.zip`) containing `work.json` (v2 format, all charts) and `tutorials/` (local tutorial images and text notes as-is)
 - Load: accepts zip project bundles and JSON archives; importing always appends, never overwrites — a project bundle becomes a new project, a single chart is appended as a new chart
 - Export chart: current chart only, as JSON (`ProjectName_ChartName.json`, v1-compatible format for older versions)
 - SVG export: vector output (`ProjectName_ChartName.svg`, with an embedded `<title>`) for printing or sharing
@@ -104,8 +105,8 @@ npm run build       # regenerate symbol data first, then emit the single-file di
 3. Drag a region with the marquee tool: copy / delete / annotate the selection; with the paste tool, click a target cell to drop the block
 4. Drag with the border tool to draw a pattern frame; use the eraser to remove mistakes
 5. Top bar "File": load zip / JSON, export chart JSON, export SVG, archive project zip
-6. Top bar "Written" shows the row-by-row instructions for the current chart; the left column can copy or download as txt, and hovering a stitch name shows its tutorial image
-7. Home page "🧵 Tutorials" attaches images to stitches; home page "🧩 Symbol Library" removes / deletes symbols and creates new custom ones
+6. Top bar "Written" shows the row-by-row instructions for the current chart; the left column can copy or download as txt, and hovering a stitch name shows its tutorial (image or text note)
+7. Home page "🧵 Tutorials" attaches images / text notes to stitches; home page "🧩 Symbol Library" removes / deletes symbols and creates new custom ones
 8. The "?" at the top-right opens the help guide at any time
 
 ### Keyboard Shortcuts
@@ -122,8 +123,8 @@ npm run build       # regenerate symbol data first, then emit the single-file di
 ### Data & Archive Formats
 
 - Autosave key `knitChartProto1` (localStorage)
-- Project bundle zip: `work.json` (`{version:2, works:[...]}`) + `tutorials/<symbol-id>.<ext>`
-- Tutorial images are stored separately in IndexedDB (database `knitChartTutor`), not in localStorage
+- Project bundle zip: `work.json` (`{version:2, works:[...]}`) + `tutorials/` (tutorial images as-is + `<symbol-id>.txt` text notes)
+- Tutorial images and text notes are stored separately in IndexedDB (database `knitChartTutor`), not in localStorage
 - The custom symbol library and the "removed built-in symbols" list are **global** (not per project) and travel with the archive and undo history; deleting a custom symbol cleans up references in every project
 - Legacy v1 single-chart JSON can still be imported
 - Legacy flat localStorage data auto-migrates into "My Project / Chart 1"
@@ -157,8 +158,8 @@ npm run build       # regenerate symbol data first, then emit the single-file di
    ├─ symbols.generated.js    # Generated file — do not edit by hand
    ├─ exportSvg.js            # SVG export
    ├─ textChart.js            # Pure chart→text conversion module (no Vue deps; callable from Node)
-   ├─ tutorials.js            # Tutorial image lookup (local upload first → built-in static files)
-   ├─ tutorialStore.js        # Tutorial image IndexedDB storage (incl. zip import/export)
+   ├─ tutorials.js            # Tutorial lookup (image / text; local upload first → built-in static)
+   ├─ tutorialStore.js        # Tutorial image & text IndexedDB storage (incl. zip import/export)
    ├─ selftest.js             # In-page self-test script
    ├─ style.css
    └─ components/
@@ -172,7 +173,7 @@ npm run build       # regenerate symbol data first, then emit the single-file di
       ├─ PalettePanel.vue     # Symbol palette (search / categories / favorites)
       ├─ SymbolArt.vue        # Single-symbol renderer
       ├─ SymbolManagerModal.vue # Symbol library modal (remove / delete / restore / new custom symbol)
-      ├─ TutorialModal.vue    # Tutorial image manager (upload per symbol)
+      ├─ TutorialModal.vue    # Tutorial manager (per-symbol image / text note)
       ├─ TextChartModal.vue   # Written-instructions modal (symbol reference + body + tutorial popover)
       ├─ HelpModal.vue        # Help guide
       ├─ AppDialog.vue        # In-app confirm / prompt dialog

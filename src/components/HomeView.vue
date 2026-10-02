@@ -1,8 +1,16 @@
 <script setup>
 import {
   state, addWork, renameWork, deleteWork, switchWork, switchChart,
+  THEMES, themeName, setTheme,
 } from '../store.js';
 import { ui, withLoading, appConfirm, appPrompt } from '../ui.js';
+
+/* 配色切换：首页只放一个「点一下换下一套」的按钮，足够；
+   图解页在「⋯更多」里给了四套的完整菜单 */
+function cycleTheme() {
+  const i = THEMES.findIndex(t => t.id === state.theme);
+  setTheme(THEMES[(i + 1) % THEMES.length].id);
+}
 
 function openWork(w) {
   withLoading(() => { switchWork(w.id); ui.view = 'editor'; });
@@ -47,10 +55,20 @@ function fmtTime(t) {
         <span class="home-count">{{ state.works.length }} 部作品</span>
       </div>
       <div class="flex items-center gap-2">
+        <button id="btnTheme" class="tb-btn" :title="`配色：${themeName(state.theme)}，点一下换下一套`"
+          @click="cycleTheme">
+          <span class="tb-sw-dot" :class="'tb-sw-' + state.theme"></span>{{ themeName(state.theme) }}
+        </button>
         <button id="btnHomeTutor" class="tb-btn" title="管理织法教程图（按符号上传图片，随作品 zip 分享）"
           @click="ui.tutorialOpen = true">🧵 教程图</button>
         <button id="btnHomeSymbols" class="tb-btn" title="符号库：移除不用的符号 / 删除自定义符号"
           @click="ui.symbolOpen = true">🧩 符号库</button>
+        <button id="btnHomeChangelog" class="tb-btn" title="版本更新记录" @click="ui.changelogOpen = true">
+          <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="9"/>
+          </svg>更新日志
+        </button>
       </div>
     </header>
 
@@ -93,6 +111,9 @@ function fmtTime(t) {
     <footer class="home-foot">
       <span>© 2026 蜘蛛织毛线 ·
         <a href="https://github.com/KiritoXF/knit-spider" target="_blank" rel="noopener noreferrer">KiritoXF</a></span>
+      <span class="home-foot-sep" aria-hidden="true">·</span>
+      <span>小红书：
+        <a href="https://www.xiaohongshu.com/user/profile/60e969a4000000000101e9e0" target="_blank" rel="noopener noreferrer">momo</a></span>
     </footer>
   </div>
 </template>

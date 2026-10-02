@@ -9,6 +9,7 @@ export const ui = reactive({
   helpOpen: false,      // 操作说明浮层
   tutorialOpen: false,  // 织法教程图管理弹窗（本机上传库）
   symbolOpen: false,    // 符号库管理弹窗（移除 / 删除符号，只在首页使用）
+  changelogOpen: false, // 更新日志弹窗（数据在 changelog.js）
   toasts: [],        // 轻提示队列 [{id,msg,tone}] tone: 'ok'|'warn'|'info'
 });
 

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
   state, saveJson, saveChartJson, importJson, importArchive, activeWork, activeChart,
-  switchWork, clearAll,
+  switchWork, clearAll, THEMES, setTheme,
 } from '../store.js';
 import { ui, withLoading, appConfirm, toast } from '../ui.js';
 import { exportSvg } from '../exportSvg.js';
@@ -48,6 +48,7 @@ function onSwitchWork(id) {
 
 /* ---- 文字解 / 文件 / 帮助 ---- */
 function menuTextChart() { closeMenu(); ui.textChartOpen = true; }
+function menuChangelog() { closeMenu(); ui.changelogOpen = true; }
 function menuSaveChart() { closeMenu(); saveChartJson(); }
 function menuExportSvg() { closeMenu(); exportSvg(); }
 function menuSaveWork() { closeMenu(); saveJson(); }
@@ -267,6 +268,38 @@ async function onClear() {
             <span class="tb-menu-txt">
               <span class="tb-menu-title">图解设置…</span>
               <span class="tb-menu-desc">网格尺寸 · 行向 · 列号</span>
+            </span>
+          </button>
+          <div class="tb-menu-sep"></div>
+          <div class="tb-menu-cap">外观配色</div>
+          <button v-for="t in THEMES" :key="t.id" :id="'btnTheme-' + t.id" class="tb-menu-item"
+            :class="{ 'tb-menu-item-on': state.theme === t.id }"
+            role="menuitemradio" :aria-checked="state.theme === t.id"
+            :title="`切换到「${t.name}」配色`" @click="setTheme(t.id)">
+            <span class="tb-menu-check">
+              <svg v-if="state.theme === t.id" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m5 12.5 4.5 4.5L19 7"/>
+              </svg>
+            </span>
+            <span class="tb-mi-ico" :class="'tb-sw-' + t.id"></span>
+            <span class="tb-menu-txt">
+              <span class="tb-menu-title">{{ t.name }}</span>
+              <span class="tb-menu-desc">{{ t.desc }}</span>
+            </span>
+          </button>
+          <div class="tb-menu-sep"></div>
+          <button id="btnChangelog" class="tb-menu-item" role="menuitem"
+            title="版本更新记录" @click="menuChangelog">
+            <span class="tb-mi-ico ico-slate">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="9"/>
+              </svg>
+            </span>
+            <span class="tb-menu-txt">
+              <span class="tb-menu-title">更新日志</span>
+              <span class="tb-menu-desc">每次更新做了什么</span>
             </span>
           </button>
           <div class="tb-menu-sep"></div>

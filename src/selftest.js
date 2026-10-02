@@ -6,13 +6,15 @@ import {
   hideSymbol, restoreSymbol, paletteIds, serializeChart, applyChartJson, resizeGrid, toggleFav,
   undo, redo, histState, copySelection, deleteSelection, pasteAt, clipSel, clipBoard,
   addAnnotation, setColLabel, isChartLocked, toggleChartLocked,
+  setDoneRows, stepDoneRows,
   activeWork, activeChart, addChart, switchChart, renameChart, deleteChart,
   addWork, deleteWork, serializeWork, importJson, importArchive, buildWorkZip, load, save,
+  THEMES, setTheme,
 } from './store.js';
-import { putTutorial, deleteTutorial, tutorialObjectUrl, tutorialU8Entries } from './tutorialStore.js';
+import { putTutorial, putTutorialText, deleteTutorial, deleteTutorialText, tutorialObjectUrl, tutorialU8Entries, tutorialTextEntries } from './tutorialStore.js';
 import { ui, ed } from './ui.js';
 import { chartToTextRows } from './textChart.js';
-import { tutorialUrlForGroup, tutorialUrlForSid } from './tutorials.js';
+import { tutorialUrlForGroup, tutorialUrlForSid, tutorialTextForGroup, tutorialTextForSid } from './tutorials.js';
 import { SYMBOLS, PALETTE_ORDER } from './symbols.js';
 import { symDataUrl } from './util.js';
 
@@ -564,37 +566,108 @@ export async function runSelfTest() {
       uLock === tEdit && uEdit2 > tEdit && saved === uEdit2;
   });
 
+  await t('done-rows', async () => {
+    // 织进度：工具条 ＋/－ 与文字解左栏步进器都写回 doneRows 并落盘；改进度不算「最后更改」，
+    // 行数缩减时自动收敛，图解 JSON / zip 存档往返带回进度
+    resetStateForTest(); await tick();
+    await new Promise(r => setTimeout(r, 12));
+    const tCreate = activeChart().updatedAt;
+    const next = document.getElementById('btnDoneNext');
+    next.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    next.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await tick();
+    const okStep = state.doneRows === 2 && activeChart().updatedAt === tCreate &&
+      JSON.parse(localStorage.getItem(LS_KEY)).works[0].charts[0].doneRows === 2 &&
+      document.getElementById('doneRowsText').textContent.replace(/\s/g, '') === '2/36' &&
+      document.getElementById('btnDonePrev').disabled === false;
+    // 撤回应只回退图面内容，不动织进度（进度不进撤销快照）
+    applyAt(1, 1); await tick();
+    undo(); await tick();
+    const okUndo = state.doneRows === 2 && state.placements.length === 0;
+    // 文字解：左栏步进器改进度；已织行淡化、当前待织行高亮带「下一行」；
+    // 正文里不再有勾选框，进度只靠高亮体现
+    ui.textChartOpen = true; await tick();
+    for (let i = 0; i < 4; i++) {
+      document.getElementById('tcDoneNext').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await tick();
+    }
+    const okCheck = state.doneRows === 6 &&
+      document.querySelectorAll('.tcm-row-done').length === 6 &&
+      document.querySelector('.tcm-row-cur .tcm-rno').textContent === 'r7' &&
+      document.querySelector('#tcProgNum b').textContent === '6';
+    // 退回一行
+    document.getElementById('tcDonePrev').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await tick();
+    const okBack = state.doneRows === 5 &&
+      document.querySelectorAll('.tcm-row-done').length === 5 &&
+      document.querySelector('.tcm-row-cur .tcm-rno').textContent === 'r6' &&
+      document.querySelectorAll('.tcm-check').length === 0;
+    ui.textChartOpen = false; await tick();
+    // 越界收敛 + 行数缩减
+    setDoneRows(999); await tick();
+    const okMax = state.doneRows === state.rows;
+    resizeGrid(state.cols, 5); await tick();
+    const okShrink = state.doneRows === 5;
+    // 存档往返：v1 单图解 JSON 带 doneRows，zip 作品包（v2）里的图解也带
+    setDoneRows(3);
+    const okV1 = serializeChart().doneRows === 3;
+    const zipSaved = JSON.parse(strFromU8(unzipSync(await buildWorkZip())['work.json']));
+    const okV2 = zipSaved.works[0].charts[0].doneRows === 3;
+    resetStateForTest(); await tick();
+    if (!(okStep && okUndo && okCheck && okBack && okMax && okShrink && okV1 && okV2))
+      window.__doneDetail = JSON.stringify({ okStep, okUndo, okCheck, okBack, okMax, okShrink, okV1, okV2 });
+    return okStep && okUndo && okCheck && okBack && okMax && okShrink && okV1 && okV2;
+  });
+
   await t('zip-roundtrip', async () => {
-    // 作品 zip 导出/导入往返：work.json + 用户教程图打包，导入后作品与教程图都还原
+    // 作品 zip 导出/导入往返：work.json + 用户教程（图 + 文字说明）打包，导入后全部还原
     window.__zipDetail = null;
     try {
       resetStateForTest(); await tick();
+      const aw0 = activeWork();
       const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
       await putTutorial('zztest', new Blob([bytes], { type: 'image/png' }), 'zztest.png');
+      await putTutorialText('zztest', '滑一针不织，线在前方');
+      await putTutorialText('zztest2', '纯文字教程，无图片'); // 纯文字记录（无图）
       const u8 = await buildWorkZip();
       const entries = unzipSync(u8);
       const saved = JSON.parse(strFromU8(entries['work.json']));
       const okZip = !!entries['work.json'] && !!entries['tutorials/zztest.png'] &&
+        !!entries['tutorials/zztest.txt'] && !!entries['tutorials/zztest2.txt'] &&
+        !entries['tutorials/zztest2.png'] &&
+        strFromU8(entries['tutorials/zztest.txt']) === '滑一针不织，线在前方' &&
+        tutorialTextForGroup({ sid: 'zztest', name: 'x' }) === '滑一针不织，线在前方' &&
+        tutorialTextForGroup(null) === null &&
         saved.version === 2 && saved.works.length === 1;
       // zip 里带的是整个本机教程库（含既有上传），条数不定，按实际数量比对
       const nTut = (await tutorialU8Entries()).length;
+      const nTxt = tutorialTextEntries().length;
       const nWorks0 = state.works.length;
       const res = await importArchive(new Blob([u8], { type: 'application/zip' }));
+      const wNew = activeWork(); // 导入后新作品成为活动作品（importJson → switchWork）
       const okImp = res.works === 1 && res.charts >= 1 && res.tutorials === nTut &&
+        res.tutorialTexts === nTxt &&
         state.works.length === nWorks0 + 1 &&
-        String(tutorialObjectUrl('zztest')).indexOf('blob:') === 0;
+        !!wNew && wNew.id !== aw0.id &&
+        String(tutorialObjectUrl('zztest')).indexOf('blob:') === 0 &&
+        tutorialTextForSid('zztest') === '滑一针不织，线在前方' &&
+        tutorialUrlForSid('zztest2') === null && // 纯文字记录无图
+        tutorialTextForSid('zztest2') === '纯文字教程，无图片';
       // 缺 work.json 的 zip 应报错
       let okErr = false;
       try { await importArchive(new Blob([zipSync({ 'other.txt': strToU8('x') })])); }
       catch (e) { okErr = true; }
       if (!(okZip && okImp && okErr))
-        window.__zipDetail = JSON.stringify({ okZip, okImp, okErr, nTut, nWorks0, res, aw: !!activeWork() });
+        window.__zipDetail = JSON.stringify({ okZip, okImp, okErr, nTut, nTxt, nWorks0, res,
+          awId: aw0 && aw0.id, newWid: wNew && wNew.id, aw: !!activeWork() });
       return okZip && okImp && okErr;
     } catch (e) {
       window.__zipDetail = 'THROW: ' + String(e && e.stack || e);
       return false;
     } finally {
-      await deleteTutorial('zztest'); // 清理，不污染本机教程库
+      await deleteTutorial('zztest');      // 删图（文字保留）
+      await deleteTutorialText('zztest');  // 再删字 → 整条记录消失
+      await deleteTutorialText('zztest2'); // 纯文字记录清理
       resetStateForTest(); await tick();
     }
   });
@@ -610,6 +683,46 @@ export async function runSelfTest() {
     await new Promise(r => setTimeout(r, 60)); // withLoading 延迟 30ms
     await tick();
     return okCards && ui.view === 'editor' && !!document.getElementById('chart');
+  });
+
+  await t('theme', async () => {
+    // 配色主题：切主题只改 <html data-theme>，色值全在 CSS 里；
+    // 选择随 localStorage 记住，load() 时还原并重新应用
+    resetStateForTest(); await tick();
+    const ids = THEMES.map(x => x.id);
+    const okIds = ids.length === 4 && ids[0] === 'sage';
+    const okDefault = state.theme === 'sage' &&
+      document.documentElement.dataset.theme === 'sage';
+    // 端到端证明 @theme 重映射 + data-theme 真的让 Tailwind 类跟着变
+    const probe = document.createElement('div');
+    probe.className = 'text-rose-600';
+    document.body.appendChild(probe);
+    setTheme('mist'); await tick();
+    const cMist = getComputedStyle(probe).color;
+    setTheme('sage'); await tick();
+    const cSage = getComputedStyle(probe).color;
+    probe.remove();
+    const okCss = cMist !== cSage && cSage === 'rgb(63, 122, 95)'; // #3f7a5f
+    setTheme('mist'); await tick();
+    const okSet = state.theme === 'mist' &&
+      document.documentElement.dataset.theme === 'mist' &&
+      JSON.parse(localStorage.getItem(LS_KEY)).theme === 'mist';
+    const t0 = activeChart().updatedAt;
+    setTheme('mauve'); await tick();
+    const okNoTrack = activeChart().updatedAt === t0; // 换配色不算「最后更改」
+    setTheme('nope'); await tick();
+    const okBad = state.theme === 'mauve';            // 未知 id 直接忽略
+    // 模拟刷新：清掉内存状态后 load() 应从 localStorage 还原
+    state.theme = 'sage';
+    document.documentElement.dataset.theme = 'sage';
+    state.works = []; state.activeWorkId = null; state.activeChartId = null;
+    load(); await tick();
+    const okLoad = state.theme === 'mauve' &&
+      document.documentElement.dataset.theme === 'mauve';
+    resetStateForTest(); await tick();
+    if (!(okIds && okDefault && okCss && okSet && okNoTrack && okBad && okLoad))
+      window.__themeDetail = JSON.stringify({ okIds, okDefault, okCss, cMist, cSage, okSet, okNoTrack, okBad, okLoad });
+    return okIds && okDefault && okCss && okSet && okNoTrack && okBad && okLoad;
   });
 
   const pass = results.every(r => r.indexOf('PASS:') === 0);

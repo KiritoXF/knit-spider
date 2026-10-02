@@ -12,6 +12,7 @@ import TextChartModal from './components/TextChartModal.vue';
 import TutorialModal from './components/TutorialModal.vue';
 import SymbolManagerModal from './components/SymbolManagerModal.vue';
 import HelpModal from './components/HelpModal.vue';
+import ChangelogModal from './components/ChangelogModal.vue';
 import AppDialog from './components/AppDialog.vue';
 
 /* Ctrl+滚轮缩放画布（与工具栏滑条同源 state.zoom） */
@@ -48,6 +49,7 @@ function onWheelZoom(e) {
   <TutorialModal/>
   <SymbolManagerModal/>
   <HelpModal/>
+  <ChangelogModal/>
   <AppDialog/>
 
   <!-- 轻提示 toast（右下角） -->

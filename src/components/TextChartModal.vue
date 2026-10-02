@@ -1,9 +1,9 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { state, activeWork, getSym } from '../store.js';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { state, activeWork, getSym, stepDoneRows } from '../store.js';
 import { ui, dlg } from '../ui.js';
 import { chartToTextRows } from '../textChart.js';
-import { tutorialUrlForGroup, tutorialUrlForSid } from '../tutorials.js';
+import { tutorialUrlForGroup, tutorialUrlForSid, tutorialTextForGroup, tutorialTextForSid } from '../tutorials.js';
 import SymbolArt from './SymbolArt.vue';
 
 const copied = ref(false);
@@ -19,33 +19,56 @@ const headTitle = computed(() => {
   const c = w && w.charts.find(x => x.id === state.activeChartId);
   return (w ? w.name : '') + ' · ' + (c ? c.name : '');
 });
-/* 展示用：分组自带 sid（符号 id），附教程图 URL；未配置教程的名称 tut=null，悬停无感 */
+/* 展示用：分组自带 sid（符号 id），附教程图 URL 与文字说明；
+   两者皆未配置的名称 tut=null，悬停无感 */
 const view = computed(() => rows.value.map(x => ({
   r: x.r, ws: x.ws,
-  groups: (x.groups || []).map(g => ({ ...g, tut: tutorialUrlForGroup(g) })),
+  groups: (x.groups || []).map(g => ({
+    ...g, tut: tutorialUrlForGroup(g), tutText: tutorialTextForGroup(g),
+  })),
 })));
 /* 本图解用到的符号速查：扫正文分组的 sid 去重（含背景针），累计使用次数，按次数降序。
-   sym 取内置/自定义符号定义用于画缩略图；tut 为教程图 URL（有图才显示虚线下划线） */
+   sym 取内置/自定义符号定义用于画缩略图；tut 为教程图 URL，tutText 为文字说明
+   （有任一即显示虚线下划线） */
 const legend = computed(() => {
   const map = new Map();
   for (const row of rows.value) {
     for (const g of row.groups || []) {
       let it = map.get(g.sid);
-      if (!it) { it = { sid: g.sid, name: g.name, n: 0, sym: getSym(g.sid), tut: null }; map.set(g.sid, it); }
+      if (!it) { it = { sid: g.sid, name: g.name, n: 0, sym: getSym(g.sid), tut: null, tutText: null }; map.set(g.sid, it); }
       it.n += g.n;
     }
   }
   const list = [...map.values()].sort((a, b) => b.n - a.n);
-  for (const it of list) it.tut = tutorialUrlForSid(it.sid);
+  for (const it of list) { it.tut = tutorialUrlForSid(it.sid); it.tutText = tutorialTextForSid(it.sid); }
   return list;
 });
 
-/* ---- 织法教程 popover：悬停有教程的针法名称约 300ms 后弹出 ----
-   fixed 定位（视口坐标），宽 640px 尽量大地显示教程图；下方空间不足时向上翻，
-   图框高度按剩余空间与 62vh 收缩；移入弹窗保持显示（200ms 宽限期），点击图片看原图 */
-const pop = ref(null); // { name, sid, url, left, top, ax, imgH, above }
+/* ---- 织进度：doneRows 已织完行数，当前待织行 = doneRows + 1（行号自下而上） ----
+   这里只做展示与出口，进度本身存在 store 的 state.doneRows / chart.doneRows；
+   正文里只靠行高亮体现进度（已织行淡化 + 当前待织行高亮） */
+const curRow = computed(() => state.doneRows + 1);
+const allDone = computed(() => state.doneRows >= state.rows);
+const docEl = ref(null);
+/* 打开弹窗时把当前待织行滚到视口偏上的位置，一进来就能接着织 */
+watch(() => ui.textChartOpen, async open => {
+  if (!open) return;
+  await nextTick();
+  const box = docEl.value;
+  const cur = box && box.querySelector('.tcm-row-cur');
+  if (!box || !cur) return;
+  const rb = box.getBoundingClientRect(), rc = cur.getBoundingClientRect();
+  box.scrollTop += (rc.top - rb.top) - box.clientHeight * 0.35;
+});
+
+/* ---- 织法教程 popover：悬停有教程（图/文字）的针法名称约 300ms 后弹出 ----
+   fixed 定位（视口坐标），宽 640px；图下方显示文字说明，无图时是纯文字卡。
+   下方空间不足时向上翻；高度按剩余空间与 62vh 收缩（文字块限高滚动）；
+   移入弹窗保持显示（200ms 宽限期），点击图片看原图 */
+const pop = ref(null); // { name, sid, url, text, left, top, ax, imgH, above }
 let popTimer = null;
 const POP_GRACE = 200;
+const POP_TXT_H = 118; // 文字块预留高度（max-height 110 + 间距）
 function hidePop() {
   clearTimeout(popTimer);
   popTimer = null;
@@ -56,9 +79,9 @@ function delayHide() {
   popTimer = setTimeout(() => { pop.value = null; }, POP_GRACE);
 }
 function onPopEnter() { clearTimeout(popTimer); }
-function onImgClick() { if (pop.value) window.open(pop.value.url, '_blank'); }
+function onImgClick() { if (pop.value && pop.value.url) window.open(pop.value.url, '_blank'); }
 function onNameEnter(ev, g) {
-  if (!g.tut) return;
+  if (!g.tut && !g.tutText) return;
   const el = ev.currentTarget;
   clearTimeout(popTimer);
   popTimer = setTimeout(() => {
@@ -66,12 +89,17 @@ function onNameEnter(ev, g) {
     const vh = window.innerHeight;
     const r = el.getBoundingClientRect();
     const below = vh - r.bottom;
+    const txtH = g.tutText ? POP_TXT_H : 0; // 有文字时高度预算多留一截
     let top, imgH, above = false;
-    if (below >= 150) { imgH = Math.min(Math.round(vh * 0.62), below - 64); top = r.bottom + 6; }
-    else { above = true; imgH = Math.min(Math.round(vh * 0.62), Math.max(120, r.top - 70)); top = Math.max(8, r.top - 6 - imgH - 56); }
+    if (below >= 150 + txtH) { imgH = Math.min(Math.round(vh * 0.62), below - 64 - txtH); top = r.bottom + 6; }
+    else {
+      above = true;
+      imgH = Math.min(Math.round(vh * 0.62), Math.max(120, r.top - 70 - txtH));
+      top = Math.max(8, r.top - 6 - imgH - txtH - 56);
+    }
     const left = Math.max(12, Math.min(r.left + r.width / 2 - W / 2, window.innerWidth - W - 12));
     const ax = Math.max(12, Math.min(r.left + r.width / 2 - left - 5, W - 22));
-    pop.value = { name: g.name, sid: g.sid, url: g.tut, left, top, ax, imgH, above };
+    pop.value = { name: g.name, sid: g.sid, url: g.tut, text: g.tutText, left, top, ax, imgH, above };
   }, 300);
 }
 function onNameLeave() { delayHide(); }
@@ -140,6 +168,19 @@ function onDownload() {
       <div class="tcm-body">
         <!-- 左栏：符号速查 + 操作 + 读法提示（常驻可见，随时核对） -->
         <aside class="tcm-side">
+          <!-- 织进度：进度存在图解上，随存档/导出带走；正文靠行高亮同步显示 -->
+          <div class="tcm-prog">
+            <span class="tcm-prog-label">织完</span>
+            <button id="tcDonePrev" class="tcm-step" :disabled="state.doneRows <= 0"
+              title="退回一行" @click="stepDoneRows(-1)">−</button>
+            <span id="tcProgNum" class="tcm-prog-num" :title="allDone
+              ? `已织完全部 ${state.rows} 行`
+              : `已织完 ${state.doneRows} 行，当前待织第 ${state.doneRows + 1} 行`">
+              <b>{{ state.doneRows }}</b><span> / {{ state.rows }}</span>
+            </span>
+            <button id="tcDoneNext" class="tcm-step" :disabled="allDone"
+              title="把下一行记为已织完" @click="stepDoneRows(1)">+</button>
+          </div>
           <div class="tcm-side-head">
             <h3>本图解用到的符号</h3>
             <span class="tcm-count">{{ legend.length }} 种</span>
@@ -151,8 +192,8 @@ function onDownload() {
                 <SymbolArt :sym="it.sym"/>
               </svg>
               <span v-else class="tcm-sym-ico-none">{{ it.name.slice(0, 1) }}</span>
-              <span class="tcm-sym-name" :class="{ 'tc-name-tut': it.tut }"
-                :title="it.tut ? '悬停查看织法教程图' : ''"
+              <span class="tcm-sym-name" :class="{ 'tc-name-tut': it.tut || it.tutText }"
+                :title="it.tut || it.tutText ? '悬停查看织法教程' : ''"
                 @mouseenter="onNameEnter($event, it)" @mouseleave="onNameLeave">{{ it.name }}</span>
               <span class="tcm-sym-n" title="全图出现次数">×{{ it.n }}</span>
             </div>
@@ -167,18 +208,22 @@ function onDownload() {
               正面行从右往左织（按图解原样读）；反面行从左往右织，下针↔上针互换、扭针织成上针的扭针。
             </p>
             <p class="tcm-hint">空白格为背景针：正面织上针、反面织下针。</p>
-            <p class="tcm-hint"><b>虚线下划线</b> = 有教程图，悬停针名可看大图。</p>
+            <p class="tcm-hint"><b>虚线下划线</b> = 有织法教程（图片或文字说明），悬停针名即可查看。</p>
           </div>
         </aside>
         <!-- 右栏：文字解正文，独立滚动 -->
         <div class="tcm-main">
-          <div id="textChartView" class="tcm-doc" @scroll.passive="hidePop">
-            <div v-for="row in view" :key="row.r" class="tcm-row" :class="{ 'tcm-row-ws': row.ws }">
-              <span class="tcm-rno">r{{ row.r }}</span>
-              <span v-if="row.ws" class="tcm-ws-badge">反面</span>
+          <div id="textChartView" ref="docEl" class="tcm-doc" @scroll.passive="hidePop">
+            <div v-for="row in view" :key="row.r" class="tcm-row"
+              :class="{ 'tcm-row-ws': row.ws, 'tcm-row-done': row.r <= state.doneRows,
+                        'tcm-row-cur': row.r === curRow && !allDone }">
+              <span class="tcm-rnog">
+                <span class="tcm-rno">r{{ row.r }}</span>
+                <span v-if="row.ws" class="tcm-ws-badge">反面</span>
+              </span>
               <span class="tcm-txt">
                 <span v-for="(g, i) in row.groups" :key="i">
-                  <b>{{ g.n }}</b><span :class="{ 'tc-name-tut': g.tut }"
+                  <b>{{ g.n }}</b><span :class="{ 'tc-name-tut': g.tut || g.tutText }"
                     @mouseenter="onNameEnter($event, g)" @mouseleave="onNameLeave">{{ g.name }}</span><span
                     v-if="i < row.groups.length - 1" class="tcm-comma">，</span>
                 </span>
@@ -197,9 +242,10 @@ function onDownload() {
           <span class="tc-pop-name">{{ pop.name }}</span>
           <span v-if="pop.sid" class="tc-pop-id">{{ pop.sid }}</span>
         </div>
-        <div class="tc-pop-imgbox" :style="{ maxHeight: pop.imgH + 'px' }">
+        <div v-if="pop.url" class="tc-pop-imgbox" :style="{ maxHeight: pop.imgH + 'px' }">
           <img :src="pop.url" alt="" title="点击查看原图" @click="onImgClick">
         </div>
+        <div v-if="pop.text" class="tc-pop-text">{{ pop.text }}</div>
       </div>
     </div>
   </div>

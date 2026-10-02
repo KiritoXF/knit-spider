@@ -206,8 +206,8 @@ onUnmounted(() => {
             @pointerdown="onCanvasDown"
             @pointermove="onCanvasMove"
             @contextmenu.prevent="ed.drawing = null">
-            <path :d="gridPath" stroke="#e2e8f0" stroke-width="0.02" fill="none"/>
-            <rect x="0" y="0" :width="ed.w" :height="ed.h" fill="none" stroke="#94a3b8" stroke-width="0.04"/>
+            <path :d="gridPath" stroke="var(--acc-border)" stroke-width="0.02" fill="none"/>
+            <rect x="0" y="0" :width="ed.w" :height="ed.h" fill="none" stroke="var(--acc-ink-3)" stroke-width="0.04"/>
             <g id="edShapesLayer">
               <template v-for="(sh, i) in ed.shapes" :key="'s' + i">
                 <line v-if="sh.type === 'line'"

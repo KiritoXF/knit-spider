@@ -1,10 +1,17 @@
 <script setup>
-import { onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import {
   state, selectTool, undo, redo, histState,
   copySelection, deleteSelection, addAnnotation, clipSel, clipBoard,
+  stepDoneRows,
 } from '../store.js';
 import { appPrompt, toast } from '../ui.js';
+
+/* 织进度：当前待织行 = doneRows + 1（行号自下而上，与织的方向一致） */
+const donePct = computed(() => state.rows ? Math.min(100, (state.doneRows / state.rows) * 100) : 0);
+const doneTitle = computed(() => (state.doneRows >= state.rows
+  ? `已织完全部 ${state.rows} 行`
+  : `已织完 ${state.doneRows} 行，当前待织第 ${state.doneRows + 1} 行`));
 
 function onCopy() {
   if (!clipSel.rect) { flashHint('请先用“框选”选中要复制的区域'); return; }
@@ -136,6 +143,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
           <path d="m15 14 5-5-5-5"/>
           <path d="M20 9H9.5a5.5 5.5 0 0 0-5.5 5.5v0a5.5 5.5 0 0 0 5.5 5.5H13"/>
         </svg>重做</button>
+    </div>
+
+    <!-- 织进度组：贴工具条右端，与左侧三组用分隔线隔开 -->
+    <div class="tb-prog" :title="doneTitle">
+      <span class="tb-label">织完</span>
+      <button id="btnDonePrev" class="tb-btn tb-step" title="回退一行"
+        :disabled="state.doneRows <= 0" @click="stepDoneRows(-1)">−</button>
+      <span id="doneRowsText" class="tb-prog-count">
+        <b>{{ state.doneRows }}</b><span class="tb-prog-slash"> / {{ state.rows }}</span>
+      </span>
+      <button id="btnDoneNext" class="tb-btn tb-step" :title="doneTitle"
+        :disabled="state.doneRows >= state.rows" @click="stepDoneRows(1)">+</button>
+      <span class="tb-prog-bar" aria-hidden="true">
+        <span class="tb-prog-fill" :style="{ width: donePct + '%' }"></span>
+      </span>
     </div>
   </div>
 </template>

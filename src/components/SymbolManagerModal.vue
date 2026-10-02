@@ -88,7 +88,7 @@ async function onRemove(it) {
       overflow-hidden flex flex-col">
       <!-- 头部 -->
       <div class="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-dashed border-rose-200"
-        style="background:linear-gradient(180deg,#fffdf8,#ffffff)">
+        style="background:linear-gradient(180deg,var(--acc-surface),var(--acc-surface-2))">
         <span class="text-lg">🧩</span>
         <div class="min-w-0">
           <h2 class="font-bold text-sm tracking-wide">符号库</h2>

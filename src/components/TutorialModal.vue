@@ -2,20 +2,20 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { ui, dlg, toast, appConfirm } from '../ui.js';
 import { state, getSym } from '../store.js';
-import { listTutorials, putTutorial, deleteTutorial, tutorialObjectUrl } from '../tutorialStore.js';
-import { tutorialUrlForSid } from '../tutorials.js';
+import { listTutorials, putTutorial, putTutorialText, deleteTutorial, tutorialObjectUrl } from '../tutorialStore.js';
+import { tutorialUrlForSid, tutorialTextForSid } from '../tutorials.js';
 import { SYMBOLS, PALETTE_ORDER } from '../symbols.js';
 import { symDataUrl } from '../util.js';
 
-/* ---- 织法教程图管理（针法字典）：左侧按符号挑选，右侧为该符号上传/替换教程图 ----
-   上传不再按文件名猜符号 id，改为「先选符号 → 传图」；图片存 IndexedDB（sid 为主键，
+/* ---- 织法教程管理（针法字典）：左侧按符号挑选，右侧为该符号配置教程 ----
+   每个符号可配一张图片和一段文字说明，可任配其一；存 IndexedDB（sid 为主键，
    同 sid 覆盖，不可能存进两条相同 key）；导出作品 zip 时随包分享。
-   红色圆点=我上传的，灰色圆点=内置图，虚线圈=未配置。
+   状态点：rose 实心=我的图，rose 空心=只有文字，灰色实心=内置图，虚线圈=未配置。
    游离记录：sid 不属于任何内置/自定义符号（旧版 zip 按中文文件名导入会产生），
    在符号网格里无处显示，单独列出可清理。 */
 
 const q = ref('');
-const filter = ref('all');   // 'all' 全部 | 'mine' 我上传的 | 'none' 未配置
+const filter = ref('all');   // 'all' 全部 | 'mine' 我配置的 | 'none' 未配置
 const selId = ref(null);
 const mineList = ref([]);
 const dropOver = ref(false);
@@ -24,6 +24,7 @@ const okMsg = ref('');
 let okTimer = null;
 const fileInput = ref(null);
 let pendingSid = null; // 正在为哪个符号选图
+const txtDraft = ref(''); // 文字说明编辑稿，失焦即保存
 
 function refresh() { mineList.value = listTutorials(); }
 
@@ -40,6 +41,10 @@ watch(() => ui.tutorialOpen, v => {
   refresh();
   errMsg.value = ''; okMsg.value = '';
   if (selId.value && !getSym(selId.value)) selId.value = null;
+});
+/* 切换符号时把文字编辑稿换成该符号的现有说明 */
+watch(selId, () => {
+  txtDraft.value = (sel.value && sel.value.tutText) || '';
 });
 
 const mineMap = computed(() => {
@@ -82,7 +87,7 @@ const items = computed(() => {
     seen.add(id);
     const hasMine = mineMap.value.has(id);
     if (filter.value === 'mine' && !hasMine) return;
-    if (filter.value === 'none' && tutorialUrlForSid(id)) return;
+    if (filter.value === 'none' && (tutorialUrlForSid(id) || tutorialTextForSid(id))) return;
     if (kw && !String(sym.name || '').toLowerCase().includes(kw) && !id.toLowerCase().includes(kw)) return;
     out.push({ id, name: sym.name || id });
   };
@@ -95,12 +100,15 @@ const sel = computed(() => {
   const id = selId.value;
   const sym = id && getSym(id);
   if (!sym) return null;
+  const mine = mineMap.value.get(id) || {};
   return {
     id, sym,
     isCustom: !SYMBOLS[id],
-    hasMine: mineMap.value.has(id),
+    hasMineImg: !!mine.url,   // 我上传的图
+    hasMineText: !!mine.text, // 我写的文字
     mineUrl: tutorialObjectUrl(id),
-    tutUrl: tutorialUrlForSid(id), // 用户上传优先，否则内置，否则 null
+    tutUrl: tutorialUrlForSid(id),   // 用户上传优先，否则内置，否则 null
+    tutText: tutorialTextForSid(id), // 用户文字优先，否则内置，否则 null
   };
 });
 
@@ -145,9 +153,30 @@ async function onDrop(ev) {
 
 async function onDel() {
   const it = sel.value;
-  if (!it || !it.hasMine) return;
-  if (!confirm(`删除「${it.id}」的教程图？（不影响内置图）`)) return;
+  if (!it || !it.hasMineImg) return;
+  const keepTxt = it.hasMineText ? '文字说明会保留。' : '';
+  const ok = await appConfirm({
+    title: '删除教程图',
+    message: `删除「${it.id}」的教程图？（不影响内置图）${keepTxt}`,
+    okText: '删除', danger: true,
+  });
+  if (!ok) return;
   await deleteTutorial(it.id);
+  refresh();
+}
+
+/* 文字说明：失焦即保存（清空即清除），空且无变化不写库 */
+async function saveText() {
+  const it = sel.value;
+  if (!it) return;
+  const v = txtDraft.value.replace(/\s+$/, '');
+  if (v === (it.tutText || '')) return;
+  try {
+    await putTutorialText(it.id, v);
+    flashOk(v ? '文字说明已保存' : '文字说明已清除');
+  } catch (err) {
+    errMsg.value = '保存失败：' + (err && err.message ? err.message : '');
+  }
   refresh();
 }
 </script>
@@ -159,11 +188,11 @@ async function onDel() {
       overflow-hidden flex flex-col">
       <!-- 头部：针法字典 -->
       <div class="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-dashed border-rose-200"
-        style="background:linear-gradient(180deg,#fffdf8,#ffffff)">
+        style="background:linear-gradient(180deg,var(--acc-surface),var(--acc-surface-2))">
         <span class="text-lg">🧵</span>
         <div class="min-w-0">
-          <h2 class="font-bold text-sm tracking-wide">织法教程图 · 针法字典</h2>
-          <p class="text-[11px] text-gray-400 mt-0.5">左侧选符号，右侧上传图片；文字解里悬停针法名即可查看</p>
+          <h2 class="font-bold text-sm tracking-wide">织法教程 · 针法字典</h2>
+          <p class="text-[11px] text-gray-400 mt-0.5">左侧选符号，右侧配图片或文字说明；文字解里悬停针法名即可查看</p>
         </div>
         <button id="tutClose" class="ml-auto text-xl leading-none px-2 text-gray-400 hover:text-gray-700"
           @click="ui.tutorialOpen = false">×</button>
@@ -176,7 +205,7 @@ async function onDel() {
             <input id="tutSearch" v-model="q" type="search" placeholder="搜符号名或 id，如 麻花 / c22L"
               class="w-full text-xs border border-stone-200 rounded-md px-2.5 py-1.5 bg-stone-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-200">
             <div class="flex gap-1 items-center">
-              <button v-for="f in [['all','全部'],['mine','我的图'],['none','未配置']]" :key="f[0]"
+              <button v-for="f in [['all','全部'],['mine','我配置的'],['none','未配置']]" :key="f[0]"
                 class="text-[11px] rounded-full px-2.5 py-1 border transition-colors"
                 :class="filter === f[0] ? 'bg-rose-500 text-white border-rose-500'
                   : 'bg-white text-gray-500 border-stone-200 hover:border-rose-300'"
@@ -209,8 +238,9 @@ async function onDel() {
                 <img :src="symDataUrl(getSym(it.id))" alt="" class="h-8 max-w-full object-contain pointer-events-none">
                 <span class="text-[10px] text-gray-600 w-full truncate text-center leading-tight">{{ it.name }}</span>
                 <span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
-                  :class="mineMap.has(it.id) ? 'bg-rose-500'
-                    : (tutorialUrlForSid(it.id) ? 'bg-stone-300' : 'border border-dashed border-stone-300')"></span>
+                  :class="(mineMap.get(it.id) || {}).url ? 'bg-rose-500'
+                    : (tutorialTextForSid(it.id) ? 'bg-rose-100 border border-rose-400'
+                    : (tutorialUrlForSid(it.id) ? 'bg-stone-300' : 'border border-dashed border-stone-300'))"></span>
               </button>
             </div>
             <p v-if="!items.length" class="text-xs text-gray-400 text-center py-8">没有匹配的符号</p>
@@ -227,9 +257,12 @@ async function onDel() {
               <div class="font-bold text-sm">{{ sel.sym.name || sel.id }}</div>
               <div class="text-[11px] text-gray-400 font-mono">{{ sel.id }}<span v-if="sel.isCustom"> · 自定义符号</span></div>
             </div>
-            <span v-if="sel.hasMine" class="ml-auto flex-none text-[11px] rounded-full bg-rose-100 text-rose-600 px-2 py-0.5">我的图 · 悬停优先显示</span>
-            <span v-else-if="sel.tutUrl" class="ml-auto flex-none text-[11px] rounded-full bg-stone-100 text-stone-500 px-2 py-0.5">内置图</span>
-            <span v-else class="ml-auto flex-none text-[11px] rounded-full bg-amber-50 text-amber-600 px-2 py-0.5">还没有教程图</span>
+            <div class="ml-auto flex-none flex items-center gap-1.5">
+              <span v-if="sel.hasMineImg" class="text-[11px] rounded-full bg-rose-100 text-rose-600 px-2 py-0.5">我的图 · 优先显示</span>
+              <span v-else-if="sel.tutUrl" class="text-[11px] rounded-full bg-stone-100 text-stone-500 px-2 py-0.5">内置图</span>
+              <span v-else class="text-[11px] rounded-full bg-amber-50 text-amber-600 px-2 py-0.5">还没有教程</span>
+              <span v-if="sel.tutText" class="text-[11px] rounded-full bg-rose-100 text-rose-600 px-2 py-0.5">带文字</span>
+            </div>
           </div>
 
           <!-- 预览 / 拖放区 -->
@@ -249,10 +282,21 @@ async function onDel() {
             </div>
           </div>
 
-          <div class="mt-4 flex items-center gap-2 flex-wrap">
+          <!-- 文字说明：与图片搭配或只配文字均可，失焦自动保存 -->
+          <div class="mt-3 flex-none">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold text-gray-700">文字说明</span>
+              <span class="text-[11px] text-gray-400">可换行；没有图片时，悬停只弹这段话</span>
+            </div>
+            <textarea id="tutText" v-model="txtDraft" rows="3" @blur="saveText"
+              placeholder="例如：右针从前方插入第 2 针绕线带出，暂不脱圈，再织第 1 针后一并脱圈……"
+              class="mt-1.5 w-full text-xs leading-relaxed border border-stone-200 rounded-md px-2.5 py-2 bg-stone-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-200 resize-y"></textarea>
+          </div>
+
+          <div class="mt-3 flex items-center gap-2 flex-wrap">
             <button id="tutUpload" class="bg-rose-700 text-white rounded-md px-4 py-1.5 text-sm hover:bg-rose-800"
-              @click="pickFor(sel.id)">{{ sel.hasMine ? '替换图片' : '上传图片' }}</button>
-            <button v-if="sel.hasMine" id="tutDelete"
+              @click="pickFor(sel.id)">{{ sel.hasMineImg ? '替换图片' : '上传图片' }}</button>
+            <button v-if="sel.hasMineImg" id="tutDelete"
               class="border border-red-200 rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
               @click="onDel">删除我的图</button>
             <span v-if="okMsg" class="text-xs text-green-600">{{ okMsg }}</span>
@@ -264,12 +308,12 @@ async function onDel() {
         <div class="flex-1 min-w-0 p-5 flex flex-col items-center justify-center text-center" v-else>
           <div class="text-4xl mb-3">🧷</div>
           <p class="text-sm text-gray-500">在左侧选一个符号</p>
-          <p class="text-[11px] text-gray-400 mt-1">为它上传一张织法教程图，文字解里悬停针法名即可查看</p>
+          <p class="text-[11px] text-gray-400 mt-1">为它配一张教程图或写一段文字说明，文字解里悬停针法名即可查看</p>
         </div>
       </div>
 
       <div class="px-5 py-2.5 border-t border-stone-100 text-[11px] text-gray-400">
-        🖼 教程图保存在本机浏览器；导出作品 zip 时会一并打包，对方导入 zip 即可获得
+        🖼 教程图片与文字说明保存在本机浏览器；导出作品 zip 时会一并打包，对方导入 zip 即可获得
       </div>
     </div>
     <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFiles">
