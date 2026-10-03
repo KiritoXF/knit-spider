@@ -35,6 +35,10 @@ const upd = computed(() => {
   };
 });
 
+/* 顶栏常驻校验码已暂时撤下（大图解下 KC2 编码 + SHA-256 的开销仍不划算，
+   「图解代码」弹窗里的校验码不受影响）。contentRev / chartCheckCode 留在
+   store 里，日后用更轻量的方案（如增量指纹）恢复 */
+
 function toggleMenu(k) { menu.value = menu.value === k ? '' : k; }
 function closeMenu() { menu.value = ''; }
 function goHome() { closeMenu(); ui.view = 'home'; }
@@ -48,12 +52,15 @@ function onSwitchWork(id) {
 
 /* ---- 文字解 / 文件 / 帮助 ---- */
 function menuTextChart() { closeMenu(); ui.textChartOpen = true; }
+function menuChartCodeCopy() { closeMenu(); ui.chartCodeMode = 'copy'; ui.chartCodeOpen = true; }
+function menuChartCodeImport() { closeMenu(); ui.chartCodeMode = 'import'; ui.chartCodeOpen = true; }
 function menuChangelog() { closeMenu(); ui.changelogOpen = true; }
 function menuSaveChart() { closeMenu(); saveChartJson(); }
 function menuExportSvg() { closeMenu(); exportSvg(); }
 function menuSaveWork() { closeMenu(); saveJson(); }
 function menuLoad() { closeMenu(); fileInput.value.click(); }
 function menuSettings() { menu.value = 'settings'; }
+function menuShaping() { closeMenu(); ui.shapingOpen = true; }
 function menuHelp() { closeMenu(); ui.helpOpen = true; }
 
 function onDocDown(e) {
@@ -143,7 +150,7 @@ async function onClear() {
     <ChartTabs/>
 
     <div ref="rightWrap" class="tb-right">
-      <!-- 关键信息：当前图解的保存时间 -->
+      <!-- 关键信息：当前图解的保存时间（校验码暂撤，待有更轻量的实现再回归） -->
       <span class="tb-upd" :title="'最后更改：' + (upd.full || '—')">
         <svg class="tb-upd-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -160,6 +167,16 @@ async function onClear() {
           <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
           <path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>
         </svg>文字解
+      </button>
+
+      <!-- 加减针：开发中，入口置灰 -->
+      <button id="btnShaping" class="tb-btn" disabled style="opacity:.45;cursor:not-allowed"
+        title="加减针（开发中）：规则引擎已就绪，交互细节打磨中，敬请期待" @click="menuShaping">
+        <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>
+          <path d="m7 4-2 3 2 3"/><path d="m17 11-2 3 2 3"/>
+        </svg>加减针
       </button>
 
       <!-- 文件：打开与导出放在一起 -->
@@ -191,8 +208,34 @@ async function onClear() {
               <span class="tb-menu-desc">zip 作品包 / JSON · 追加为新作品</span>
             </span>
           </button>
+          <button id="btnCopyChartCode" class="tb-menu-item" role="menuitem"
+            title="把当前图解压缩成一行代码（含校验码），可粘贴导入还原" @click="menuChartCodeCopy">
+            <span class="tb-mi-ico ico-slate">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+            </span>
+            <span class="tb-menu-txt">
+              <span class="tb-menu-title">复制图解代码</span>
+              <span class="tb-menu-desc">一行短代码 · 带校验码</span>
+            </span>
+          </button>
           <div class="tb-menu-sep"></div>
           <div class="tb-menu-cap">导出与存档</div>
+          <button id="btnImportChartCode" class="tb-menu-item" role="menuitem"
+            title="粘贴图解代码，追加为新图解" @click="menuChartCodeImport">
+            <span class="tb-mi-ico ico-amber">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m16 3 4 4-4 4"/><path d="M20 7H8a4 4 0 0 0-4 4v1"/>
+              </svg>
+            </span>
+            <span class="tb-menu-txt">
+              <span class="tb-menu-title">从代码导入…</span>
+              <span class="tb-menu-desc">粘贴图解代码 · 追加新图解</span>
+            </span>
+          </button>
           <button id="btnSaveChartJson" class="tb-menu-item" role="menuitem"
             title="仅导出当前图解为 JSON 文件" @click="menuSaveChart">
             <span class="tb-mi-ico ico-slate">

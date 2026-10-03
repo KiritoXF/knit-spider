@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted } from 'vue';
 import {
   state, selectTool, undo, redo, histState,
   copySelection, deleteSelection, addAnnotation, clipSel, clipBoard,
-  stepDoneRows,
+  stepDoneRows, flushPersist,
 } from '../store.js';
 import { appPrompt, toast } from '../ui.js';
 
@@ -37,7 +37,7 @@ function onPaste() {
 }
 function flashHint(text) { clipBoard.info = text; toast(text, 'info'); }
 
-/* 全局快捷键：Ctrl+Z / Ctrl+Y(或 Ctrl+Shift+Z) / Ctrl+C / Ctrl+V / Delete / Esc */
+/* 全局快捷键：Ctrl+Z / Ctrl+Y(或 Ctrl+Shift+Z) / Ctrl+C / Ctrl+V / Ctrl+S / Delete / Esc */
 function onKey(e) {
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
@@ -47,6 +47,7 @@ function onKey(e) {
     if (k === 'y') { e.preventDefault(); redo(); return; }
     if (k === 'c') { if (clipSel.rect) { e.preventDefault(); copySelection(); } return; }
     if (k === 'v') { if (clipBoard.data) { e.preventDefault(); selectTool('paste'); } return; }
+    if (k === 's') { e.preventDefault(); flushPersist(); toast('已保存到本地', 'ok'); return; }
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
     if (clipSel.rect) { e.preventDefault(); deleteSelection(); }
   } else if (e.key === 'Escape') {

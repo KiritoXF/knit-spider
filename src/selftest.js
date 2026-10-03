@@ -8,9 +8,11 @@ import {
   addAnnotation, setColLabel, isChartLocked, toggleChartLocked,
   setDoneRows, stepDoneRows,
   activeWork, activeChart, addChart, switchChart, renameChart, deleteChart,
-  addWork, deleteWork, serializeWork, importJson, importArchive, buildWorkZip, load, save,
+  addWork, deleteWork, serializeWork, importJson, importArchive, buildWorkZip, importChartCode, load, save, flushPersist,
+  contentRev, chartCheckCode,
   THEMES, setTheme,
 } from './store.js';
+import { chartToCode, codeToChart } from './chartCode.js';
 import { putTutorial, putTutorialText, deleteTutorial, deleteTutorialText, tutorialObjectUrl, tutorialU8Entries, tutorialTextEntries } from './tutorialStore.js';
 import { ui, ed } from './ui.js';
 import { chartToTextRows } from './textChart.js';
@@ -22,6 +24,7 @@ import { symDataUrl } from './util.js';
 export async function runSelfTest() {
   const results = [];
   const tick = () => nextTick();
+  const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const t = async (name, fn) => {
     let ok = false;
     try { ok = !!(await fn()); } catch (e) { results.push('ERR:' + name + ':' + e.message); return; }
@@ -33,33 +36,59 @@ export async function runSelfTest() {
   ui.view = 'editor'; // 自测试需要画布 DOM，先切到编辑页
   await tick();
 
-  /* ---- canvas 符号层断言助手：同步建图缓存 → 等位图解码 → 重绘 → 取像素 ---- */
-  const symCanvasReady = async () => {
+  /* ---- canvas 符号层断言助手：同步建图缓存 → 等位图解码 → 重绘 → 取像素 ----
+     符号层已瓦片化（16 格/块，tileLayer.js）：symCanvasReady 返回 #symLayer 容器；
+     blockHasInk 按格子坐标定位所在瓦片（data-tc/data-tr），对块与瓦片的交集采样 */
+  const TILE = 16, CELL_PX = 28;
+  const symCanvasReady = async (c0, ty) => {
     await tick();
     const L = window.__symLayer;
     if (!L) return null;
+    /* 瓦片只渲染可视区：断言目标格若在视口外，先把该格滚进可视区 */
+    if (c0 !== undefined) {
+      const sc = document.querySelector('.canvas-scroll');
+      if (sc) {
+        const p = CELL_PX * state.zoom;
+        sc.scrollLeft = Math.max(0, (c0 - 2) * p);
+        sc.scrollTop = Math.max(0, (ty - 2) * p);
+      }
+    }
     L.redraw();
     await L.ready();
     L.redraw();
-    return document.getElementById('symCanvas');
+    return document.getElementById('symLayer');
   };
-  /* 格块内采样（向内缩 18% 避开边缘网格线/外框）：test(r,g,b,a) 任一像素命中即真 */
+  /* 格块内采样（向内缩 18% 避开边缘网格线/外框）：test(r,g,b,a) 任一像素命中即真。
+     块可跨瓦片：对覆盖的每个瓦片采样其与块的交集，任一命中即真 */
   const blockHasInk = (cv, c0, ty, wCells, hCells, test = (r, g, b, a) => a > 8) => {
     if (!cv) return false;
-    const px = 28 * state.zoom;
-    const s = cv.width / (state.cols * px); // backing / CSS 像素比
-    const x = Math.round((c0 + 0.18) * px * s), y = Math.round((ty + 0.18) * px * s);
-    const w = Math.max(1, Math.round((wCells - 0.36) * px * s));
-    const h = Math.max(1, Math.round((hCells - 0.36) * px * s));
-    const d = cv.getContext('2d').getImageData(x, y, w, h).data;
-    for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2], d[i + 3])) return true;
+    const px = CELL_PX * state.zoom;
+    const cols = state.cols, rows = state.rows;
+    const tcs0 = Math.floor(c0 / TILE), tcs1 = Math.floor((c0 + wCells - 1) / TILE);
+    const trs0 = Math.floor(ty / TILE), trs1 = Math.floor((ty + hCells - 1) / TILE);
+    for (let tr = trs0; tr <= trs1; tr++) for (let tc = tcs0; tc <= tcs1; tc++) {
+      const el = cv.querySelector(`canvas[data-tc="${tc}"][data-tr="${tr}"]`);
+      if (!el || !el.width || !el.height) continue;
+      const oc = tc * TILE, or = tr * TILE;
+      const aCols = Math.min(TILE, cols - oc), aRows = Math.min(TILE, rows - or);
+      const cx0 = Math.max(c0, oc), cx1 = Math.min(c0 + wCells, oc + aCols);
+      const cy0 = Math.max(ty, or), cy1 = Math.min(ty + hCells, or + aRows);
+      if (cx1 <= cx0 || cy1 <= cy0) continue;
+      const s = el.width / (aCols * px); // 该瓦片 backing / CSS 像素比
+      const x = Math.round((cx0 - oc + 0.18) * px * s);
+      const y = Math.round((cy0 - or + 0.18) * px * s);
+      const w = Math.max(1, Math.round((cx1 - cx0 - 0.36) * px * s));
+      const h = Math.max(1, Math.round((cy1 - cy0 - 0.36) * px * s));
+      const d = el.getContext('2d').getImageData(x, y, w, h).data;
+      for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2], d[i + 3])) return true;
+    }
     return false;
   };
   const RED_PIX = (r, g, b, a) => a > 200 && r > 170 && g < 90 && b < 90;
 
   await t('place-knit', async () => {
     applyAt(10, 5);
-    const cv = await symCanvasReady();
+    const cv = await symCanvasReady(10, state.rows - 5);
     return state.placements.length === 1 && !!cv &&
       blockHasInk(cv, 10, state.rows - 5, 1, 1) &&   // 该格有符号笔迹
       !blockHasInk(cv, 0, state.rows - 1, 1, 1);     // 空白格无笔迹
@@ -101,7 +130,7 @@ export async function runSelfTest() {
   });
   await t('place-cable-2x2', async () => {
     selectTool('c22L'); applyAt(2, 2); selectTool('knit');
-    const cv = await symCanvasReady();
+    const cv = await symCanvasReady(2, state.rows - 2);
     const p = state.placements[1];
     return state.placements.length === 2 && !!p && p.col === 2 && p.row === 2 &&
       p.w === 4 && p.h === 1 && !!cv && blockHasInk(cv, 2, state.rows - 2, 4, 1);
@@ -115,7 +144,7 @@ export async function runSelfTest() {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await tick();
     return state.highlight === 3 && !!document.querySelector('#hlLayer rect') &&
-      JSON.parse(localStorage.getItem(LS_KEY)).highlight === 3;
+      (flushPersist(), JSON.parse(localStorage.getItem(LS_KEY)).highlight === 3);
   });
   await t('erase-knit', async () => {
     selectTool('erase'); applyAt(10, 5); selectTool('knit');
@@ -144,7 +173,7 @@ export async function runSelfTest() {
     const id = upsertCustom({ name: '试做符号', w: 3, h: 2, shapes: [
       { type: 'line', x1: 0, y1: 0, x2: 3, y2: 2, color: '#d00000', w: 0.08 } ] });
     selectTool(id); applyAt(4, 10); selectTool('knit');
-    const cv = await symCanvasReady();
+    const cv = await symCanvasReady(4, state.rows - 11);
     const p = state.placements.find(x => x.sym === id);
     return !!p && p.w === 3 && p.h === 2 &&
       !!document.querySelector('.palette-btn[data-tool="' + id + '"]') &&
@@ -230,7 +259,7 @@ export async function runSelfTest() {
     const id = upsertCustom({ name: '曲线符号', w: 3, h: 3, shapes: [
       { type: 'curve', x1: 0, y1: 0, cx1: 1, cy1: 0, cx2: 2, cy2: 3, x2: 3, y2: 3, color: '#d00000', w: 0.08 } ] });
     selectTool(id); applyAt(4, 4); selectTool('knit');
-    const cv = await symCanvasReady();
+    const cv = await symCanvasReady(4, state.rows - 6);
     const p = state.placements.find(x => x.sym === id);
     const ok = !!p && !!cv &&
       decodeURIComponent(symDataUrl(getSym(id))).includes('M0 0 C1 0 2 3 3 3') &&
@@ -460,10 +489,10 @@ export async function runSelfTest() {
   });
 
   await t('switch-perf-big-chart', async () => {
-    // 200×200 + 2500 符号的大图解，切换渲染必须远小于用户可感的"几秒"
-    resizeGrid(200, 200);
-    for (let r = 1; r <= 50; r++) {
-      for (let c = 0; c < 200; c += 4) {
+    // 400×400 + 1 万符号的大图解，切换渲染必须远小于用户可感的"几秒"
+    resizeGrid(400, 400); // 新上限：瓦片渲染必须扛住 400×400
+    for (let r = 1; r <= 100; r++) {
+      for (let c = 0; c < 400; c += 4) {
         state.placements.push({ sym: 'k2tog', col: c, row: r, w: 1, h: 1 });
       }
     }
@@ -477,13 +506,113 @@ export async function runSelfTest() {
     await tick(); // 包含 Vue 渲染 flush
     window.__symLayer.redraw(); // 计入符号位图重绘（canvas 方案的实际渲染开销）
     const ms = performance.now() - t0;
-    const cv = await symCanvasReady();
+    const cv = await symCanvasReady(0, state.rows - 8);
     const inkOk = !!cv && blockHasInk(cv, 0, state.rows - 8, 8, 8);
     deleteChart(idB);
     await tick();
     resetStateForTest(); // 还原干净状态
     await tick();
     return inkOk && ms < 2000 && state.placements.length === 0;
+  });
+
+  await t('big-chart-edit-perf', async () => {
+    // 120×150 满图（9000 放置）下的编辑与粘贴必须迅速返回。曾有两处把大图拖垮：
+    // ① 每次 save 做 4~5 次全量 stringify（含整个作品树落 localStorage）；
+    // ② 粘贴对每个新符号 filter 一遍全数组（O(放置数×粘贴数)）。
+    // 阈值取得很宽松（约 5~10 倍余量），只拦「退化成秒级」的算法性回归
+    resizeGrid(120, 150);
+    for (let r = 1; r <= 150; r++)
+      for (let c = 0; c < 120; c += 2)
+        state.placements.push({ sym: 'k2tog', col: c, row: r, w: 1, h: 1 });
+    save(); await tick();
+    // 手绘/擦除：连续 100 次落格
+    const t0 = performance.now();
+    for (let i = 0; i < 100; i++) applyAt(1 + (i % 118), 1 + ((i * 7) % 150));
+    const editMs = performance.now() - t0;
+    await tick();
+    // 框选 30×60 个符号并整块粘贴到右侧
+    clipSel.rect = { c0: 0, r0: 1, c1: 59, r1: 60 };
+    const n = copySelection();
+    const t1 = performance.now();
+    pasteAt(60, 1);
+    const pasteMs = performance.now() - t1;
+    await tick();
+    // 文字解：正文生成曾按「行数×放置数」全量扫描（150×9000≈135 万次），
+    // 打开弹窗时卡住主线程
+    const t2 = performance.now();
+    chartToTextRows(state);
+    const textMs = performance.now() - t2;
+    const t3 = performance.now();
+    ui.textChartOpen = true; await tick();
+    const openMs = performance.now() - t3;
+    ui.textChartOpen = false; await tick();
+    // 单次点击（落一格）的端到端耗时：applyAt + Vue 刷新（画布/顶栏等 watchEffect）。
+    // 顶栏校验码曾在这里把整个图解 JSON.stringify 一遍来注册响应依赖，加上
+    // deflate+SHA-256，每点一下堵主线程数十毫秒，表现为「卡 + 攒几笔才生效」
+    selectTool('knit');
+    const t4 = performance.now();
+    for (let i = 0; i < 20; i++) { applyAt(2 + i * 5, 149); await tick(); }
+    const clickMs = (performance.now() - t4) / 20;
+    window.__bigChartPerf = JSON.stringify({ placements: state.placements.length, n, editMs, pasteMs, textMs, openMs, clickMs });
+    const ok = n > 0 && editMs < 1500 && pasteMs < 800 && textMs < 200 && openMs < 3000 && clickMs < 25;
+    resetStateForTest(); // 还原干净状态
+    await tick();
+    return ok;
+  });
+
+  await t('overwrite-redraw', async () => {
+    // 同格覆盖绘制（长度不变）：画布必须立刻重绘。曾把重绘依赖写成
+    // placements.length，覆盖时长度不变导致漏触发，改动攒到下次编辑才出现
+    resetStateForTest(); await tick();
+    selectTool('knit'); applyAt(2, 2); await tick();
+    const ty = state.rows - 2;
+    let cv = await symCanvasReady(5, ty);
+    const blankBefore = !blockHasInk(cv, 5, ty, 1, 1); // knit 只有 1 格，col5 应空白
+    selectTool('c22L'); applyAt(2, 2); await tick();   // 4×1 交叉针覆盖同格
+    cv = await symCanvasReady(5, ty);
+    const inkAfter = blockHasInk(cv, 5, ty, 1, 1);     // col5 出现墨迹 = 重绘已发生
+    selectTool('knit');
+    resetStateForTest(); await tick();
+    return blankBefore && inkAfter;
+  });
+
+  await t('tile-straddle-cable', async () => {
+    // 跨瓦片宽符号（4×1 交叉针骑在 16 格瓦片边界上）必须完整渲染：
+    // 两块各画裁剪段，拼缝处像素连续、无双线无缝
+    resetStateForTest(); await tick();
+    resizeGrid(40, 20); // 瓦片边界在 col16/row(顶部数)16
+    const col = 14;     // 足迹 [14,17] 跨 col16 边界
+    const row = 10;
+    selectTool('c22L'); applyAt(col, row); await tick();
+    const ty = state.rows - row;
+    const cv = await symCanvasReady(15, ty);
+    // 符号 4 格宽：col14..17，每格都应有墨迹（含边界两侧的 15/16 列）
+    const ok = blockHasInk(cv, 14, ty, 1, 1) && blockHasInk(cv, 15, ty, 1, 1) &&
+      blockHasInk(cv, 16, ty, 1, 1) && blockHasInk(cv, 17, ty, 1, 1);
+    selectTool('knit');
+    resetStateForTest(); await tick();
+    return ok;
+  });
+
+  await t('content-rev', async () => {
+    // 顶栏校验码的响应依赖：从「每次编辑把整个图解 JSON.stringify 一遍」换成
+    // store 的 contentRev（O(1)）。要求——图面内容变化必自增；纯会话态变化
+    // （换工具）不得自增；撤销/重做（改回图面内容）也要自增
+    const r0 = contentRev.n;
+    selectTool('knit'); applyAt(3, 3); await tick();
+    const r1 = contentRev.n;
+    selectTool('erase'); await tick();          // 换工具：非内容变化
+    const r2 = contentRev.n;
+    const c1 = await chartCheckCode();
+    selectTool('knit'); applyAt(6, 6); await tick();
+    const r3 = contentRev.n;
+    const c2 = await chartCheckCode();
+    undo(); await tick();
+    const r4 = contentRev.n;
+    const ok = r1 > r0 && r2 === r1 && r3 > r2 && r4 > r3 &&
+      /^[0-9a-f]{8}$/.test(c1) && c2 !== c1;
+    resetStateForTest(); await tick();
+    return ok;
   });
 
   await t('chart-lock', async () => {
@@ -539,9 +668,89 @@ export async function runSelfTest() {
       tutorialUrlForGroup({ sid: 'twp', name: '上针的扭针' }) === twpUrl &&
       tutorialUrlForGroup({ sid: null, name: '上针' }) === null &&
       tutorialUrlForGroup(null) === null;
+    // 反面织法用户覆盖（符号库「反面织法」配置）：knit→twp、tws→通用
+    // 原本 r2 反面 sid 序列为 ['purl','twp','knit']（knit→purl、tws→twp、背景 knit）；
+    // 覆盖后 knit→twp、tws 不再换算 → ['twp','tws','knit']
+    state.wsMap = { knit: 'twp', tws: '' };
+    const rowsM = chartToTextRows(state);
+    const wsMapOk = JSON.stringify(rowsM[1].groups.map(g => g.sid)) === JSON.stringify(['twp', 'tws', 'knit']);
     resetStateForTest();
     await tick();
-    return ok1 && ok2 && ok3 && sidOk && tutOk;
+    return ok1 && ok2 && ok3 && sidOk && tutOk && wsMapOk;
+  });
+
+  await t('chart-code-roundtrip', async () => {
+    // 图解代码：往返无损（宽/多行符号、边框、含转义字符的标注、列号、自定义符号）
+    resetStateForTest(); await tick();
+    const cid = upsertCustom({ name: '码上麻花', w: 2, h: 1, shapes: [
+      { type: 'line', x1: 0, y1: 0, x2: 2, y2: 1, color: '#d00000', w: 0.08 } ] });
+    selectTool('knit'); applyAt(0, 1); applyAt(1, 1); applyAt(2, 1); // 同行连块 → RLE
+    selectTool(cid); applyAt(0, 2);
+    selectTool('c22L'); applyAt(4, 3); // 宽符号
+    selectTool('purl'); applyAt(6, 4);
+    commitBorder(0, 0, 3, 3);
+    addAnnotation('中\n心;测试,转\\义:!感叹');
+    setColLabel(2, '甲,乙');
+    const chart = JSON.parse(JSON.stringify(activeChart()));
+    chart.rowStartSide = 'left';
+    const code = await chartToCode(chart, state.customSymbols);
+    const { chart: back, customRefs } = await codeToChart(code);
+    /* KC2 按「格内容」编码：解码侧会把同行同符号连块合并成宽放置，
+       且一个宽放置与多个 1×1 等价——所以比较基准用格内容矩阵而非放置对象 */
+    const cellsOf = c => {
+      const g = Array.from({ length: c.rows }, () => Array(c.cols).fill(null));
+      for (const p of c.placements)
+        for (let dy = 0; dy < (p.h || 1); dy++)
+          for (let dx = 0; dx < (p.w || 1); dx++)
+            g[p.row - 1 + dy][p.col + dx] = p.sym === '~0' ? cid : p.sym;
+      return g;
+    };
+    const okRt = eq({ rows: back.rows, cols: back.cols, rowStartSide: back.rowStartSide,
+        colLabels: back.colLabels, borders: back.borders, annotations: back.annotations,
+        cells: cellsOf(back) },
+      { rows: chart.rows, cols: chart.cols, rowStartSide: chart.rowStartSide,
+        colLabels: chart.colLabels, borders: chart.borders, annotations: chart.annotations,
+        cells: cellsOf(chart) }) &&
+      customRefs.length === 1 && customRefs[0].name === '码上麻花' &&
+      code.startsWith('KC2!');
+    // 确定性：打乱 placements 顺序重编仍同串
+    const shuffled = { ...chart, placements: [...chart.placements].reverse() };
+    const okDet = await chartToCode(shuffled, state.customSymbols) === code;
+    // 篡改 → TAMPERED
+    let kind = '';
+    try { await codeToChart(code.slice(0, -2) + 'zz'); } catch (e) { kind = e.kind; }
+    const okTamper = kind === 'TAMPERED';
+    deleteCustom(cid); await tick();
+    resetStateForTest(); await tick();
+    return okRt && okDet && okTamper;
+  });
+
+  await t('chart-code-import', async () => {
+    // 图解代码导入：追加为新图解；缺自定义符号报 MISSING_CUSTOM 且名单正确
+    resetStateForTest(); await tick();
+    const nCharts0 = activeWork().charts.length;
+    const code = await chartToCode({
+      rows: 8, cols: 6, rowStartSide: 'right', colLabels: {},
+      placements: [{ sym: 'knit', col: 0, row: 1, w: 1, h: 1 }],
+      borders: [], annotations: [],
+    }, []);
+    const id1 = await importChartCode(' \n ' + code + ' '); // 夹带空白应容错
+    await tick();
+    const okAppend = activeWork().charts.length === nCharts0 + 1 &&
+      state.activeChartId === id1 && activeChart().rows === 8 && activeChart().cols === 6 &&
+      state.placements.length === 1 && state.placements[0].sym === 'knit';
+    // 引用自定义符号的代码：本机没有 → MISSING_CUSTOM
+    const cid = 'custom_absent';
+    const codeC = await chartToCode({
+      rows: 8, cols: 6, rowStartSide: 'right', colLabels: {},
+      placements: [{ sym: cid, col: 0, row: 1, w: 1, h: 1 }],
+      borders: [], annotations: [],
+    }, [{ id: cid, name: '不存在的符号', w: 1, h: 1, shapes: [] }]);
+    let kind = '', names = [];
+    try { await importChartCode(codeC); } catch (e) { kind = e.kind; names = e.detail; }
+    const okMissing = kind === 'MISSING_CUSTOM' && eq(names, ['不存在的符号']);
+    resetStateForTest(); await tick();
+    return okAppend && okMissing;
   });
 
   await t('chart-updated-at', async () => {
@@ -558,6 +767,7 @@ export async function runSelfTest() {
     await new Promise(r => setTimeout(r, 12));
     applyAt(2, 1); await tick();
     const uEdit2 = activeChart().updatedAt;
+    flushPersist();
     const saved = JSON.parse(localStorage.getItem(LS_KEY))
       .works[0].charts.find(x => x.id === activeChart().id).updatedAt;
     resetStateForTest(); await tick();
@@ -577,7 +787,7 @@ export async function runSelfTest() {
     next.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await tick();
     const okStep = state.doneRows === 2 && activeChart().updatedAt === tCreate &&
-      JSON.parse(localStorage.getItem(LS_KEY)).works[0].charts[0].doneRows === 2 &&
+      (flushPersist(), JSON.parse(localStorage.getItem(LS_KEY)).works[0].charts[0].doneRows === 2) &&
       document.getElementById('doneRowsText').textContent.replace(/\s/g, '') === '2/36' &&
       document.getElementById('btnDonePrev').disabled === false;
     // 撤回应只回退图面内容，不动织进度（进度不进撤销快照）
@@ -706,13 +916,14 @@ export async function runSelfTest() {
     setTheme('mist'); await tick();
     const okSet = state.theme === 'mist' &&
       document.documentElement.dataset.theme === 'mist' &&
-      JSON.parse(localStorage.getItem(LS_KEY)).theme === 'mist';
+      (flushPersist(), JSON.parse(localStorage.getItem(LS_KEY)).theme === 'mist');
     const t0 = activeChart().updatedAt;
     setTheme('mauve'); await tick();
     const okNoTrack = activeChart().updatedAt === t0; // 换配色不算「最后更改」
     setTheme('nope'); await tick();
     const okBad = state.theme === 'mauve';            // 未知 id 直接忽略
-    // 模拟刷新：清掉内存状态后 load() 应从 localStorage 还原
+    // 模拟刷新：先把 mauve 落盘（写入已防抖），再清掉内存状态，load() 应从 localStorage 还原
+    flushPersist();
     state.theme = 'sage';
     document.documentElement.dataset.theme = 'sage';
     state.works = []; state.activeWorkId = null; state.activeChartId = null;
@@ -726,7 +937,7 @@ export async function runSelfTest() {
   });
 
   const pass = results.every(r => r.indexOf('PASS:') === 0);
-  save(); // 把收尾的干净状态落盘，避免测试中途的大图解等残留在 localStorage
+  save(); flushPersist(); // 把收尾的干净状态落盘，避免测试中途的大图解等残留在 localStorage
   const div = document.createElement('div');
   div.id = 'selftest';
   div.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99;font-size:18px;padding:10px;font-family:monospace;' +

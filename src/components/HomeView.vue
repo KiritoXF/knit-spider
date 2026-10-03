@@ -1,4 +1,5 @@
 <script setup>
+import { ref, onMounted, onUnmounted } from 'vue';
 import {
   state, addWork, renameWork, deleteWork, switchWork, switchChart,
   THEMES, themeName, setTheme,
@@ -41,9 +42,24 @@ function fmtTime(t) {
   const d = new Date(t), now = new Date();
   const pad = n => String(n).padStart(2, '0');
   if (d.toDateString() === now.toDateString()) return `今天 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日`;
+  if (d.getFullYear() === now.getFullYear()) return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+/* 友情链接：静态列表，新增直接在这里加一条 {name, url, desc?}；入口在顶栏「友情链接」下拉菜单 */
+const FRIEND_LINKS = [
+  { name: '织码图解', url: 'https://www.xiaohongshu.com/user/profile/5d28a5950000000016037a84', desc: '小红书' },
+  { name: '毛衣编织图解生成器', url: 'https://maoyitujie.pythonanywhere.com/', desc: '在线生成' },
+  { name: '翡晔楼编织工具箱', url: 'https://knitting-toolbox.pages.dev/', desc: '在线工具箱' },
+];
+const linksOpen = ref(false);
+const linksWrap = ref(null);
+function toggleLinks() { linksOpen.value = !linksOpen.value; }
+function onDocClickLinks(e) {
+  if (linksOpen.value && linksWrap.value && !linksWrap.value.contains(e.target)) linksOpen.value = false;
+}
+onMounted(() => document.addEventListener('click', onDocClickLinks));
+onUnmounted(() => document.removeEventListener('click', onDocClickLinks));
 </script>
 
 <template>
@@ -69,6 +85,33 @@ function fmtTime(t) {
             <path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="9"/>
           </svg>更新日志
         </button>
+        <div ref="linksWrap" class="tb-menu-wrap">
+          <button id="btnFriendLinks" class="tb-btn" :class="{ 'tb-btn-on': linksOpen }"
+            aria-haspopup="menu" :aria-expanded="linksOpen" title="友情链接" @click="toggleLinks">
+            🔗 友情链接
+            <svg class="tb-chev" :class="{ 'tb-chev-open': linksOpen }" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6"/>
+            </svg>
+          </button>
+          <div v-if="linksOpen" class="tb-menu" role="menu" aria-label="友情链接">
+            <div class="tb-menu-cap">编织好站</div>
+            <a v-for="l in FRIEND_LINKS" :key="l.url" class="tb-menu-item" role="menuitem"
+              :href="l.url" target="_blank" rel="noopener noreferrer" :title="l.name + '（' + l.desc + '）'">
+              <span class="tb-mi-ico ico-teal">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                </svg>
+              </span>
+              <span class="tb-menu-txt">
+                <span class="tb-menu-title">{{ l.name }}</span>
+                <span class="tb-menu-desc">{{ l.desc }}</span>
+              </span>
+            </a>
+          </div>
+        </div>
       </div>
     </header>
 

@@ -11,8 +11,8 @@ const inRows = ref(state.rows);
 const locked = computed(() => isChartLocked());
 
 function applyResize() {
-  const cols = Math.min(200, Math.max(4, +inCols.value || state.cols));
-  const rows = Math.min(200, Math.max(4, +inRows.value || state.rows));
+  const cols = Math.min(400, Math.max(4, +inCols.value || state.cols));
+  const rows = Math.min(400, Math.max(4, +inRows.value || state.rows));
   inCols.value = cols; inRows.value = rows;
   if (cols === state.cols && rows === state.rows) { toast('网格尺寸没有变化'); return; }
   resizeGrid(cols, rows);
@@ -35,17 +35,17 @@ function onClearCol() {
 
     <div class="tb-panel-row">
       <span class="tb-panel-label">网格尺寸</span>
-      <input id="inCols" v-model.number="inCols" type="number" class="tb-input w-14" min="4" max="200"
-        :disabled="locked" title="网格宽（针数，4–200）"
+      <input id="inCols" v-model.number="inCols" type="number" class="tb-input w-14" min="4" max="400"
+        :disabled="locked" title="网格宽（针数，4–400）"
         @keydown.enter="applyResize" @focus="$event.target.select()">
       <span class="tb-x">×</span>
-      <input id="inRows" v-model.number="inRows" type="number" class="tb-input w-14" min="4" max="200"
-        :disabled="locked" title="网格行数（4–200）"
+      <input id="inRows" v-model.number="inRows" type="number" class="tb-input w-14" min="4" max="400"
+        :disabled="locked" title="网格行数（4–400）"
         @keydown.enter="applyResize" @focus="$event.target.select()">
       <button id="btnResize" class="tb-btn tb-btn-primary ml-auto" :disabled="locked"
         title="应用新网格尺寸（也可在输入框按 Enter）" @click="applyResize">应用</button>
     </div>
-    <p class="tb-panel-hint">列 × 行，4–200。缩小网格会移除超出的符号。</p>
+    <p class="tb-panel-hint">列 × 行，4–400。缩小网格会移除超出的符号。</p>
 
     <div class="tb-panel-row">
       <span class="tb-panel-label">第 1 行起</span>

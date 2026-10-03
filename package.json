@@ -1,13 +1,14 @@
 {
   "name": "knitchart",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "dev-open": "vite --open /knitting-chart.html",
     "build": "node scripts/generate-symbols.mjs && vite build",
     "gen-symbols": "node scripts/generate-symbols.mjs",
+    "test:code": "node scripts/test-chart-code.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

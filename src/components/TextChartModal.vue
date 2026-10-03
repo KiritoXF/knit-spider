@@ -22,7 +22,7 @@ const headTitle = computed(() => {
 /* 展示用：分组自带 sid（符号 id），附教程图 URL 与文字说明；
    两者皆未配置的名称 tut=null，悬停无感 */
 const view = computed(() => rows.value.map(x => ({
-  r: x.r, ws: x.ws,
+  r: x.r, ws: x.ws, count: x.count,
   groups: (x.groups || []).map(g => ({
     ...g, tut: tutorialUrlForGroup(g), tutText: tutorialTextForGroup(g),
   })),
@@ -65,7 +65,7 @@ watch(() => ui.textChartOpen, async open => {
    fixed 定位（视口坐标），宽 640px；图下方显示文字说明，无图时是纯文字卡。
    下方空间不足时向上翻；高度按剩余空间与 62vh 收缩（文字块限高滚动）；
    移入弹窗保持显示（200ms 宽限期），点击图片看原图 */
-const pop = ref(null); // { name, sid, url, text, left, top, ax, imgH, above }
+const pop = ref(null); // { name, sid, url, text, left, top|bottom, ax, imgH, above }
 let popTimer = null;
 const POP_GRACE = 200;
 const POP_TXT_H = 118; // 文字块预留高度（max-height 110 + 间距）
@@ -80,26 +80,49 @@ function delayHide() {
 }
 function onPopEnter() { clearTimeout(popTimer); }
 function onImgClick() { if (pop.value && pop.value.url) window.open(pop.value.url, '_blank'); }
+/* 针名换行时 getBoundingClientRect 是多行碎片的联合外框，箭头会指错；
+   改用光标位置取鼠标所在那一行的文字碎片 rect（取不到再退回联合框） */
+function lineRectAt(x, y) {
+  try {
+    let rg = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+    if (!rg && document.caretPositionFromPoint) {
+      const p = document.caretPositionFromPoint(x, y);
+      if (p) { rg = document.createRange(); rg.setStart(p.offsetNode, p.offset); }
+    }
+    if (!rg) return null;
+    let rc = rg.getBoundingClientRect();
+    if (rc.width || rc.height) return rc;
+    rg.expand && rg.expand('character'); // 光标折叠时扩一个字符
+    rc = rg.getBoundingClientRect();
+    return (rc.width || rc.height) ? rc : null;
+  } catch { return null; }
+}
 function onNameEnter(ev, g) {
   if (!g.tut && !g.tutText) return;
   const el = ev.currentTarget;
+  const mx = ev.clientX, my = ev.clientY;
   clearTimeout(popTimer);
   popTimer = setTimeout(() => {
     const W = Math.min(640, window.innerWidth - 24);
     const vh = window.innerHeight;
-    const r = el.getBoundingClientRect();
+    const r = lineRectAt(mx, my) || el.getBoundingClientRect();
     const below = vh - r.bottom;
     const txtH = g.tutText ? POP_TXT_H : 0; // 有文字时高度预算多留一截
-    let top, imgH, above = false;
-    if (below >= 150 + txtH) { imgH = Math.min(Math.round(vh * 0.62), below - 64 - txtH); top = r.bottom + 6; }
-    else {
+    let top = null, bottom = null, imgH, above = false;
+    if (below >= 150 + txtH) { // 下方放得下：锚定符号下方 6px，向下展开
+      imgH = Math.min(Math.round(vh * 0.62), below - 64 - txtH);
+      top = r.bottom + 6;
+    } else {
+      // 下方不够：向上翻。用 bottom 锚定弹窗底边在符号上方 6px——
+      // imgH 只是 maxHeight，实际图往往更矮，若按预算反推 top，
+      // 弹窗会悬在离符号很远的位置（曾出现「纵向显示在屏幕上方」）
       above = true;
       imgH = Math.min(Math.round(vh * 0.62), Math.max(120, r.top - 70 - txtH));
-      top = Math.max(8, r.top - 6 - imgH - txtH - 56);
+      bottom = vh - r.top + 6;
     }
     const left = Math.max(12, Math.min(r.left + r.width / 2 - W / 2, window.innerWidth - W - 12));
     const ax = Math.max(12, Math.min(r.left + r.width / 2 - left - 5, W - 22));
-    pop.value = { name: g.name, sid: g.sid, url: g.tut, text: g.tutText, left, top, ax, imgH, above };
+    pop.value = { name: g.name, sid: g.sid, url: g.tut, text: g.tutText, left, top, bottom, ax, imgH, above };
   }, 300);
 }
 function onNameLeave() { delayHide(); }
@@ -205,7 +228,7 @@ function onDownload() {
               <span v-if="copied" class="tcm-flash">已复制</span>
             </div>
             <p class="tcm-hint">
-              正面行从右往左织（按图解原样读）；反面行从左往右织，下针↔上针互换、扭针织成上针的扭针。
+              正面行从右往左织（按图解原样读）；反面行从左往右织，符号按「反面织法」换算（默认下针↔上针、扭针互换，可在符号库调整）。
             </p>
             <p class="tcm-hint">空白格为背景针：正面织上针、反面织下针。</p>
             <p class="tcm-hint"><b>虚线下划线</b> = 有织法教程（图片或文字说明），悬停针名即可查看。</p>
@@ -228,14 +251,17 @@ function onDownload() {
                     v-if="i < row.groups.length - 1" class="tcm-comma">，</span>
                 </span>
               </span>
-              <span class="tcm-sum">{{ state.cols }} 针</span>
+              <span class="tcm-sum">{{ row.count }} 针</span>
             </div>
           </div>
         </div>
       </div>
       <!-- 织法教程 popover：fixed 定位，Esc/滚动内容区/移开关闭；移入弹窗保持显示，点图片看原图 -->
       <div v-if="pop" class="tc-pop" :class="{ 'tc-pop-above': pop.above }"
-        :style="{ left: pop.left + 'px', top: pop.top + 'px', '--ax': pop.ax + 'px' }"
+        :style="{ left: pop.left + 'px',
+                  top: pop.top !== null ? pop.top + 'px' : 'auto',
+                  bottom: pop.bottom !== null ? pop.bottom + 'px' : 'auto',
+                  '--ax': pop.ax + 'px' }"
         @mouseenter="onPopEnter" @mouseleave="delayHide">
         <div class="tc-pop-head">
           <span class="tc-pop-chip">织法教程</span>

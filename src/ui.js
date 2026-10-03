@@ -10,6 +10,9 @@ export const ui = reactive({
   tutorialOpen: false,  // 织法教程图管理弹窗（本机上传库）
   symbolOpen: false,    // 符号库管理弹窗（移除 / 删除符号，只在首页使用）
   changelogOpen: false, // 更新日志弹窗（数据在 changelog.js）
+  chartCodeOpen: false, // 图解代码弹窗（复制 / 导入）
+  chartCodeMode: 'copy', // 'copy' | 'import'
+  shapingOpen: false,   // 塑形（减针/加针）规则面板
   toasts: [],        // 轻提示队列 [{id,msg,tone}] tone: 'ok'|'warn'|'info'
 });
 

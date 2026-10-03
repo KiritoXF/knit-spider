@@ -1,8 +1,10 @@
-import { reactive } from 'vue';
+import { reactive, toRaw } from 'vue';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { SYMBOLS, PALETTE_ORDER } from './symbols.js';
 import { ui, ed, resetEditor, toast } from './ui.js';
 import { tutorialU8Entries, tutorialTextEntries, importTutorials, importTutorialTexts } from './tutorialStore.js';
+import { chartToCode, codeToChart, hashCustomSym } from './chartCode.js';
+import * as textChart from './textChart.js';
 
 export const LS_KEY = 'knitChartProto1';
 
@@ -31,6 +33,8 @@ export const state = reactive({
   favorites: [],       // 标记为"常用"的符号 id（仅本机 UI 偏好，不进撤销与 JSON 存档）
   activeCats: ['all'], // 符号面板分类筛选（仅本机 UI 偏好，不进撤销与 JSON 存档）
   theme: 'sage',       // 配色主题 id（见 THEMES；仅本机偏好，不进作品树与 JSON 存档）
+  wsMap: {},           // 反面行符号换算的用户覆盖 {正面id: 反面id|''}；'' = 正反面通用。
+                       // 与默认规则（textChart.WS_SYM）合并后生效；仅本机偏好，不进作品树与 JSON 存档
   tool: 'knit',        // 'erase' | 'border' | 'select' | 'paste' | 符号 id
 });
 
@@ -59,6 +63,26 @@ export function setTheme(id) {
   save();
 }
 applyTheme(); // 启动即应用（此时是默认值，load() 恢复用户选择后会再应用一次）
+
+/* ---------------- 反面行符号换算（用户覆盖） ----------------
+   入口在符号库弹窗（SymbolManagerModal）的「反面织法」模式。
+   只存与默认规则（textChart.WS_SYM）不同的覆盖：targetId 为 '' 表示
+   该符号改为正反面通用；删除覆盖即回到默认 */
+export function setWsMapping(symId, targetId) {
+  if (typeof symId !== 'string' || !symId) return;
+  if (targetId && typeof targetId !== 'string') return;
+  if (targetId === symId) targetId = ''; // 指向自己 = 通用
+  if (targetId) state.wsMap[symId] = targetId;
+  else if (textChart.WS_SYM[symId]) state.wsMap[symId] = ''; // 默认有映射 → 覆盖为「通用」
+  else delete state.wsMap[symId]; // 默认就无映射 → 清掉覆盖即回到默认
+  save();
+}
+/* 清除某符号的覆盖，回到默认规则 */
+export function removeWsMapping(symId) {
+  if (typeof symId !== 'string') return;
+  delete state.wsMap[symId];
+  save();
+}
 
 /* ---------------- 作品 / 图解管理 ---------------- */
 let idSeq = 0;
@@ -280,59 +304,75 @@ export function deleteSelection() {
 /* ---------------- 撤销 / 重做（会话级，不持久化） ---------------- */
 let history = [];      // {fp, snap}：每次图面变更后的内容快照
 let hIndex = -1;
-/* 快照上限：快照是 JSON 字符串（见 captureSnap），30 份 × ~200KB ≈ 6MB 字符串；
+/* 快照上限：快照是 JSON 字符串（见 makeSnap），30 份 × ~200KB ≈ 6MB 字符串；
    曾用 100 份对象树深拷贝 ≈ 32 万个对象常驻，真实编辑会话中切回大图解
    触发 8-10 秒主线程长任务（画面已显示但交互冻结，longtask 实测） */
 const UNDO_MAX = 30;
+/* 快照总字符预算（≈48MB UTF-16）：大图解单份快照可达数 MB，仅靠条数上限
+   会内存爆炸；超限从最旧淘汰（undo 可回退步数随之减少，属预期行为） */
+const SNAP_CHARS_MAX = 24e6;
 let inUndoRedo = false;
 
-/* 图面内容指纹：不含 zoom/tool/highlight/selection 等会话状态 */
-function fingerprint() {
-  return JSON.stringify([
-    state.rows, state.cols, state.rowStartSide,
-    state.colLabels, state.placements, state.borders, state.annotations,
-    state.customSymbols, state.hiddenSymbols,
-  ]);
-}
-/* 快照存 JSON 字符串而非对象树：字符串对 GC 几乎零压力（无对象图遍历标记），
-   也免去每次保存的 stringify+parse 双开销；恢复时 parse 出全新对象，
-   从根上杜绝快照与 state 共享数组引用导致的撤销污染 */
-function captureSnap() {
-  return JSON.stringify({
+/* 图面内容快照：图面、全局库各一次 stringify（不再额外拼一份 fp 字符串，
+   大图解下每次编辑少一整份内容的分配）。快照存 JSON 字符串而非对象树：
+   字符串对 GC 几乎零压力（无对象图遍历标记），也免去每次保存的
+   stringify+parse 双开销；恢复时 parse 出全新对象，从根上杜绝快照与
+   state 共享数组引用导致的撤销污染。
+   序列化前先 toRaw 剥掉响应式代理：state 是深 reactive，直接 stringify
+   会对上万个 placement 逐个触发 Proxy get 陷阱（实测每次 save 53ms→2ms） */
+function chartContent() {
+  return {
     rows: state.rows, cols: state.cols, rowStartSide: state.rowStartSide,
-    colLabels: state.colLabels, placements: state.placements, borders: state.borders,
-    annotations: state.annotations,
-    customSymbols: state.customSymbols, hiddenSymbols: state.hiddenSymbols,
-  });
+    colLabels: toRaw(state.colLabels), placements: toRaw(state.placements),
+    borders: toRaw(state.borders), annotations: toRaw(state.annotations),
+  };
 }
+function makeSnap() {
+  return {
+    chartStr: JSON.stringify(chartContent()),
+    cs: JSON.stringify([toRaw(state.customSymbols), toRaw(state.hiddenSymbols)]),
+  };
+}
+/* 内容是否相同：直接比字符串（V8 对等长字符串比较接近 memcmp，比先哈希再比更省）
+   旧实现额外拼一份 fp 字符串，等于每次编辑多分配一整份图面内容。
+   图面与全局库分开比：全局自定义符号库变动要能撤销，但不该刷新图解「最后更改」 */
+function sameChart(a, b) { return !!a && a.chartStr === b.chartStr; }
+function sameSnap(a, b) { return sameChart(a, b) && a.cs === b.cs; }
 export const histState = reactive({ canUndo: false, canRedo: false });
+/* 图面内容版本号：图面内容真正变化时自增（编辑走 save 的判定，撤销/重做走
+   restoreSnap，换图/导入走 resetHistory）。顶栏校验码这类昂贵的派生物只需读它
+   即可注册依赖——不必再为了「感知变化」把整个图解 JSON.stringify 一遍 */
+export const contentRev = reactive({ n: 0 });
 function syncHistUI() {
   histState.canUndo = hIndex > 0;
   histState.canRedo = hIndex < history.length - 1;
 }
 export function resetHistory() {
-  history = [{ fp: fingerprint(), snap: captureSnap() }];
+  history = [makeSnap()];
   hIndex = 0;
+  contentRev.n++;
   syncHistUI();
 }
 export function undo() {
   if (hIndex <= 0 || guardLocked()) return;
   hIndex--;
-  restoreSnap(history[hIndex].snap);
+  restoreSnap(history[hIndex]);
   syncHistUI();
 }
 export function redo() {
   if (hIndex >= history.length - 1 || guardLocked()) return;
   hIndex++;
-  restoreSnap(history[hIndex].snap);
+  restoreSnap(history[hIndex]);
   syncHistUI();
 }
 function restoreSnap(snap) {
   inUndoRedo = true;
   try {
-    applyChartObject(JSON.parse(snap));
+    const cs = JSON.parse(snap.cs); // [customSymbols, hiddenSymbols]
+    applyChartObject({ ...JSON.parse(snap.chartStr), customSymbols: cs[0], hiddenSymbols: cs[1] });
     syncActiveChart();
-    try { localStorage.setItem(LS_KEY, JSON.stringify(persistObject())); } catch (e) {}
+    contentRev.n++; // 撤销/重做改了图面内容，派生物（如顶栏校验码）需重算
+    schedulePersist();
   } finally { inUndoRedo = false; }
 }
 
@@ -351,59 +391,80 @@ function flashInfo(text) {
 }
 
 /* localStorage 持久化对象：作品树 + 全局库 + 会话状态。
-   直接引用 reactive 对象即可——调用方只做一次 JSON.stringify，
-   不要在这里 JSON.parse(JSON.stringify(...)) 深拷贝（大作品树会双倍序列化开销） */
+   与 makeSnap 同理先 toRaw，否则整个作品树（含大图解的每个 placement）
+   都要走 Proxy 陷阱序列化 */
 function persistObject() {
   return {
     version: 2,
-    works: state.works,
+    works: toRaw(state.works),
     activeWorkId: state.activeWorkId,
     activeChartId: state.activeChartId,
-    customSymbols: state.customSymbols,
-    hiddenSymbols: state.hiddenSymbols,
-    favorites: state.favorites,
-    activeCats: state.activeCats,
+    customSymbols: toRaw(state.customSymbols),
+    hiddenSymbols: toRaw(state.hiddenSymbols),
+    favorites: toRaw(state.favorites),
+    activeCats: toRaw(state.activeCats),
     zoom: state.zoom, tool: state.tool, highlight: state.highlight,
     theme: state.theme,
+    wsMap: toRaw(state.wsMap),
   };
 }
 /* ---------------- 图解最后更改时间 ----------------
-   chart.updatedAt 随存档保存。以图解自身内容指纹变化为准：
-   放置/擦除/边框/标注/列号/网格尺寸/正反侧/撤销重做/粘贴/删选区计时；
-   锁定切换、重命名、收藏、面板偏好、全局自定义符号库变动不计时 */
-let lastChartFpKey = ''; // 'chartId:内容指纹'，图表切换（换 id）不算更改
-function chartFp() {
-  return JSON.stringify([
-    state.rows, state.cols, state.rowStartSide,
-    state.colLabels, state.placements, state.borders, state.annotations,
-  ]);
+   chart.updatedAt 随存档保存。以图面内容是否真的变化为准（历史是否新增一条）：
+   放置/擦除/边框/标注/列号/网格尺寸/正反侧/粘贴/删选区计时；
+   锁定切换、重命名、收藏、面板偏好、换配色/换工具等不产生历史节点，不计时。
+   图解切换时 resetHistory 会用当前图解重新播种，故无需再记图表 id */
+
+/* ---------------- localStorage 防抖写入 ----------------
+   persistObject() 会 stringify 整个作品树（所有作品所有图解），大图解时是
+   单次编辑里最大的一笔开销；编辑类操作高频调用 save()，改为 12s 节流式
+   落盘（连击期间每 12s 至多写一次，停手后 12s 内补写最后一次），
+   Ctrl+S / 页面隐藏/关闭前强制刷出，避免丢档 */
+const PERSIST_DELAY = 12000;
+let persistTimer = 0;
+function persistNow() {
+  if (!persistTimer) return;
+  persistTimer = 0;
+  try { localStorage.setItem(LS_KEY, JSON.stringify(persistObject())); } catch (e) {}
 }
-function trackChartChange() {
-  const c = activeChart();
-  if (!c) return;
-  const key = c.id + ':' + chartFp();
-  if (key === lastChartFpKey) return;
-  if (lastChartFpKey.startsWith(c.id + ':')) c.updatedAt = Date.now();
-  lastChartFpKey = key;
+/* 自测/关键路径用：立即落盘（平时走 400ms 防抖） */
+export function flushPersist() { persistNow(); }
+function schedulePersist() {
+  if (!persistTimer) persistTimer = setTimeout(persistNow, PERSIST_DELAY);
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', persistNow);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(); });
 }
 
 export function save() {
   try {
     syncActiveChart();
-    trackChartChange(); // 图面内容变化时刷新当前图解 updatedAt（锁定切换等不计时）
     const w0 = activeWork(); // 记录最近编辑时间，作品管理页展示用
     if (w0) w0.updatedAt = Date.now();
-    if (!inUndoRedo) {
-      const fp = fingerprint();
-      if (hIndex < 0 || history[hIndex].fp !== fp) {
-        history = history.slice(0, hIndex + 1);
-        history.push({ fp, snap: captureSnap() });
-        if (history.length > UNDO_MAX) history.shift();
-        hIndex = history.length - 1;
-        syncHistUI();
-      }
+    /* 大图解下 stringify 是主要开销：图面内容只序列化这一次，同时用于
+       撤销历史（去重 + 快照）与「最后更改时间」追踪 */
+    const s = makeSnap();
+    if (!sameChart(history[hIndex], s)) { // 图面真变了才刷新「最后更改」
+      const c = activeChart();
+      if (c) c.updatedAt = Date.now();
+      contentRev.n++;
     }
-    localStorage.setItem(LS_KEY, JSON.stringify(persistObject()));
+    if (!sameSnap(history[hIndex], s) && !inUndoRedo) {
+      history = history.slice(0, hIndex + 1);
+      history.push(s);
+      if (history.length > UNDO_MAX) history.shift();
+      /* 字节预算：密集 400×400 单份快照 3-4MB，30 份 ≈ 120MB 字符串常驻，
+         必须按总字符数限流（≈48MB UTF-16）——超限从最旧开始淘汰 */
+      let total = 0;
+      for (const h of history) total += h.chartStr.length + h.cs.length;
+      while (history.length > 1 && total > SNAP_CHARS_MAX) {
+        total -= history[0].chartStr.length + history[0].cs.length;
+        history.shift();
+      }
+      hIndex = history.length - 1;
+      syncHistUI();
+    }
+    schedulePersist(); // 实际 localStorage 写入防抖合并
   } catch (e) {}
 }
 
@@ -412,8 +473,8 @@ function sanitizeChartIn(c, chosenNames) {
   if (!c || typeof c !== 'object') return null;
   const name = uniqueName(String(c.name || '').trim() || '图解', chosenNames);
   chosenNames.push(name);
-  const rows = Math.min(200, Math.max(4, Math.round(+c.rows) || 36));
-  const cols = Math.min(200, Math.max(4, Math.round(+c.cols) || 24));
+  const rows = Math.min(400, Math.max(4, Math.round(+c.rows) || 36));
+  const cols = Math.min(400, Math.max(4, Math.round(+c.cols) || 24));
   return {
     id: pickId(c.id, 'c'), name,
     rows, cols,
@@ -466,6 +527,9 @@ export function load() {
         ? [...s.activeCats] : ['all'];
       if (Number.isFinite(+s.zoom) && +s.zoom >= 0.5 && +s.zoom <= 2.5) state.zoom = +s.zoom;
       if (THEMES.some(t => t.id === s.theme)) state.theme = s.theme;
+      state.wsMap = (s.wsMap && typeof s.wsMap === 'object' && !Array.isArray(s.wsMap))
+        ? Object.fromEntries(Object.entries(s.wsMap).filter(([k, v]) => typeof k === 'string' && k && typeof v === 'string'))
+        : {};
       applyTheme();
       const taken = [];
       for (const wIn of s.works) {
@@ -726,10 +790,63 @@ export function importJson(text) {
   return { works: 0, charts: 1 };
 }
 
+/* 从图解代码（DSL）导入：追加为当前作品的新图解。
+   代码里的自定义符号按「名字+内容哈希」匹配本机符号库，缺失则抛
+   ChartCodeError('MISSING_CUSTOM') 并带 detail=缺失名字数组。
+   成功返回新图解 id。 */
+export async function importChartCode(code) {
+  const { chart, customRefs } = await codeToChart(code);
+  /* 本机自定义符号按 名字+hash 建索引，回填 ~n → 本机 id */
+  const local = new Map();
+  for (const c of state.customSymbols) local.set(c.name + '*' + (await hashCustomSym(c)), c.id);
+  const missing = [];
+  const refToId = new Map();
+  for (const r of customRefs) {
+    const id = local.get(r.name + '*' + r.hash);
+    if (id) refToId.set('~' + r.n, id);
+    else missing.push(r.name);
+  }
+  if (missing.length) {
+    const e = new Error('代码用到本机没有的自定义符号：' + missing.join('、'));
+    e.kind = 'MISSING_CUSTOM'; e.detail = missing;
+    throw e;
+  }
+  const raw = {
+    ...chart,
+    placements: chart.placements.map(p => ({ ...p, sym: refToId.get(p.sym) || p.sym })),
+    name: '导入图解',
+  };
+  const w = activeWork();
+  const c = sanitizeChartIn(raw, w.charts.map(x => x.name));
+  syncActiveChart(); // 先把当前编辑面写回旧图解（与 addChart 同惯例）
+  w.charts.push(c);
+  pruneMissingSymbolsAll();
+  switchChart(c.id);
+  return c.id;
+}
+
+/* 图解校验码（顶栏常驻展示）：即当前图解的 KC2 代码末 8 位 SHA-256——
+   与「图解代码」弹窗里展示的校验码完全一致（用户要求两处统一，避免困扰）。
+   异步计算（deflate + SHA-256，大图解几毫秒）；调用方负责响应式触发与竞态防护。
+   口径 = KC2：网格/列号/放置/边框/标注 + 被引用的自定义符号（名+形状哈希+尺寸），
+   全部规范化排序——同一图解跨导入/跨设备必同码 */
+export async function chartCheckCode() {
+  const c = activeChart();
+  if (!c) return '';
+  /* 传原始数组：编码器会逐放置读 col/row/w/h，走 reactive 代理会逐次触发
+     Proxy get 陷阱（大图解几毫秒～十几毫秒） */
+  const raw = {
+    ...c,
+    placements: toRaw(c.placements), borders: toRaw(c.borders),
+    annotations: toRaw(c.annotations), colLabels: toRaw(c.colLabels),
+  };
+  return (await chartToCode(raw, toRaw(state.customSymbols))).slice(-8);
+}
+
 /* 把存档对象套到 state 上（校验 + 清理），不写 localStorage；供文件载入与撤销恢复共用 */
 function applyChartObject(s) {
-  const cols = Math.min(200, Math.max(4, Math.round(+s.cols)));
-  const rows = Math.min(200, Math.max(4, Math.round(+s.rows)));
+  const cols = Math.min(400, Math.max(4, Math.round(+s.cols)));
+  const rows = Math.min(400, Math.max(4, Math.round(+s.rows)));
   state.cols = cols; state.rows = rows;
   // 必须逐项拷贝：state 不能与快照/存档对象共享数组引用，
   // 否则 push 等原地修改会污染撤销历史里的快照
@@ -794,15 +911,32 @@ export function copySelection() {
 export function pasteAt(c, r) {
   const cb = clipBoard.data;
   if (!cb || guardLocked()) return;
+  /* 先算出所有能落位的符号，并把它们覆盖的格收进 Set；
+     再用一趟遍历剔掉与这些格相交的旧符号、一次性拼上新符号。
+     旧实现对每个新符号都 filter 一遍全数组（O(放置数×粘贴数)），
+     上万放置的图解粘贴大块时会卡住 */
+  const add = [];
+  let cover = null;
   for (const rp of cb.placements) {
     const d = getSym(rp.sym);
     if (!d) continue;
     const col = c + rp.col, row = r + rp.row;
     if (!fits(col, row, d.w, d.h)) continue;
-    // 覆盖：删掉与新区块相交的旧符号
-    state.placements = state.placements.filter(p =>
-      !(col < p.col + p.w && p.col < col + d.w && row < p.row + p.h && p.row < row + d.h));
-    state.placements.push({ sym: rp.sym, col, row, w: d.w, h: d.h });
+    add.push({ sym: rp.sym, col, row, w: d.w, h: d.h });
+    if (!cover) cover = new Set();
+    for (let i = 0; i < d.w; i++)
+      for (let j = 0; j < d.h; j++) cover.add((col + i) * 10000 + (row + j));
+  }
+  if (add.length) {
+    const keep = [];
+    for (const p of toRaw(state.placements)) {
+      let clash = false;
+      for (let i = 0; i < p.w && !clash; i++)
+        for (let j = 0; j < p.h; j++)
+          if (cover.has((p.col + i) * 10000 + (p.row + j))) { clash = true; break; }
+      if (!clash) keep.push(p);
+    }
+    state.placements = keep.concat(add);
   }
   for (const rb of cb.borders) {
     const col = c + rb.col, row = r + rb.row;
@@ -883,6 +1017,13 @@ export function selectTool(id) {
 /* ---------------- 放置 / 删除 ---------------- */
 const hit = (p, c, r) => c >= p.col && c < p.col + p.w && r >= p.row && r < p.row + p.h;
 const borderHit = (b, c, r) => c >= b.col && c < b.col + b.w && r >= b.row && r < b.row + b.h;
+/* 从原始数组里按谓词筛出保留项：大图解下对 reactive 代理数组做 filter 会
+   逐元素触发 Proxy get 陷阱（每次绘制 6ms 量级），走 raw 只做纯数值比较 */
+function keepRaw(arr, drop) {
+  const out = [];
+  for (const x of toRaw(arr)) if (!drop(x)) out.push(x);
+  return out;
+}
 
 export function fits(c, r, w, h) {
   return c >= 0 && r >= 1 && c + w <= state.cols && r + h - 1 <= state.rows;
@@ -893,9 +1034,9 @@ export function applyAt(c, r) {
   const tool = state.tool;
   if (tool === 'erase') {
     const pn = state.placements.length, bn = state.borders.length, an = state.annotations.length;
-    state.placements = state.placements.filter(p => !hit(p, c, r));
-    state.borders = state.borders.filter(b => !borderHit(b, c, r));
-    state.annotations = state.annotations.filter(a => !hit(a, c, r));
+    state.placements = keepRaw(state.placements, p => hit(p, c, r));
+    state.borders = keepRaw(state.borders, b => borderHit(b, c, r));
+    state.annotations = keepRaw(state.annotations, a => hit(a, c, r));
     if (state.placements.length !== pn || state.borders.length !== bn ||
         state.annotations.length !== an) save();
     return;
@@ -904,8 +1045,8 @@ export function applyAt(c, r) {
   const d = getSym(tool);
   if (!d || !fits(c, r, d.w, d.h)) return;
   // 覆盖：删掉与新区块相交的旧符号
-  state.placements = state.placements.filter(p =>
-    !(c < p.col + p.w && p.col < c + d.w && r < p.row + p.h && p.row < r + d.h));
+  state.placements = keepRaw(state.placements, p =>
+    c < p.col + p.w && p.col < c + d.w && r < p.row + p.h && p.row < r + d.h);
   state.placements.push({ sym: tool, col: c, row: r, w: d.w, h: d.h });
   save();
 }
@@ -922,9 +1063,9 @@ export function commitBorder(c0, r0, c1, r1) {
 
 export function eraseAt(c, r) {
   if (guardLocked()) return;
-  state.placements = state.placements.filter(p => !hit(p, c, r));
-  state.borders = state.borders.filter(b => !borderHit(b, c, r));
-  state.annotations = state.annotations.filter(a => !hit(a, c, r));
+  state.placements = keepRaw(state.placements, p => hit(p, c, r));
+  state.borders = keepRaw(state.borders, b => borderHit(b, c, r));
+  state.annotations = keepRaw(state.annotations, a => hit(a, c, r));
   save();
 }
 
@@ -932,9 +1073,9 @@ export function eraseAt(c, r) {
 export function resizeGrid(cols, rows) {
   if (guardLocked()) return;
   state.cols = cols; state.rows = rows;
-  state.placements = state.placements.filter(p => p.col + p.w <= cols && p.row + p.h - 1 <= rows);
-  state.borders = state.borders.filter(b => b.col + b.w <= cols && b.row + b.h - 1 <= rows);
-  state.annotations = state.annotations.filter(a => a.col + a.w <= cols && a.row + a.h - 1 <= rows);
+  state.placements = keepRaw(state.placements, p => !(p.col + p.w <= cols && p.row + p.h - 1 <= rows));
+  state.borders = keepRaw(state.borders, b => !(b.col + b.w <= cols && b.row + b.h - 1 <= rows));
+  state.annotations = keepRaw(state.annotations, a => !(a.col + a.w <= cols && a.row + a.h - 1 <= rows));
   for (const k of Object.keys(state.colLabels)) if (+k >= cols) delete state.colLabels[k];
   if (state.highlight && state.highlight > rows) state.highlight = null;
   if (state.doneRows > rows) state.doneRows = rows;
@@ -1037,7 +1178,7 @@ export function resetStateForTest() {
     works: [], activeWorkId: null, activeChartId: null,
     rows: 36, cols: 24, placements: [], borders: [], annotations: [], customSymbols: [],
     hiddenSymbols: [], highlight: null, zoom: 1, rowStartSide: 'right', colLabels: {}, tool: 'knit',
-    doneRows: 0, theme: 'sage',
+    doneRows: 0, theme: 'sage', wsMap: {},
   });
   ensureSkeleton();
   applyTheme();

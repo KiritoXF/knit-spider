@@ -1,13 +1,14 @@
 <script setup>
-import { reactive, ref, computed, watchEffect, onMounted, onUnmounted } from 'vue';
+import { reactive, ref, computed, watchEffect, onMounted, onUnmounted, toRaw } from 'vue';
 import {
   state, labelFor, setColLabel, applyAt, commitBorder,
-  eraseAt, fits, toggleHighlight, getSym, pasteAt, clipSel, clipBoard,
+  eraseAt, fits, toggleHighlight, getSym, pasteAt, clipSel, clipBoard, contentRev,
 } from '../store.js';
 import { CELL, symDataUrl } from '../util.js';
+import { createTileLayer } from '../tileLayer.js';
 
 const svgEl = ref(null);
-const symCanvasEl = ref(null);
+const symLayerEl = ref(null);
 let painting = false;
 let borderDrag = null;   // {c0,r0} 拖边框时的起点
 let selDrag = null;      // {c0,r0} 框选起点
@@ -35,10 +36,6 @@ const canvasStyle = computed(() => ({
   height: (state.rows * CELL * state.zoom) + 'px',
 }));
 
-const placed = computed(() => state.placements.map(p => ({
-  p, sym: getSym(p.sym), ty: state.rows - p.row - p.h + 1,
-})).filter(x => x.sym));
-
 /* 工具光标：擦除=指针、粘贴=复制、框选/边框=十字；符号工具保持默认（有 ghost 预览） */
 const toolClass = computed(() => {
   if (state.tool === 'erase') return 'cur-erase';
@@ -47,26 +44,33 @@ const toolClass = computed(() => {
   return '';
 });
 
-/* ================= canvas 符号层（零 DOM 节点） =================
+/* ================= 瓦片化 canvas 符号层 =================
    演进：① 每放置一个 SymbolArt 组件实例 → 大图解切换秒级卡顿；
-   ② <g v-html> 内联路径一次性渲染 → 显示变快，但用户环境切回大图解仍有
-   8-10s 主线程长任务（694KB 字符串解析 + 上万节点 SVG 布局/绘制）；
-   ③ <defs>+<use> 去重实验 → Chrome 为数千 use 实例建影子树反而 9.4s，勿再试。
-   现方案：每符号生成 data-URL SVG → Image 缓存（按符号对象弱引用，自定义符号
-   编辑时对象被替换即自动失效），重绘 = 清屏 + 网格线 + 逐放置 drawImage 位图
-   blit，与 DOM 树完全解耦。z 序用「底 SVG(热区/高亮/行号列号) < canvas <
-   顶 SVG(边框/标注/框选/ghost)」夹心结构，与原单 SVG 层叠顺序一致 */
+   ② <g v-html> 内联路径 → 上万节点 SVG 布局 8-10s 长任务；
+   ③ <defs>+<use> → Chrome 影子树反而 9.4s，勿再试；
+   ④ 单 canvas 位图（data-URL Image + drawImage）→ 快，但 backing 被全局
+   16M 像素帽压住，世界越大符号越糊，且重绘要遍历全部放置；
+   现方案：16 格瓦片 canvas（tileLayer.js），每块按 dpr 全分辨率渲染
+   （无全局帽 → 任何尺寸锐利），只保活可视区 ±1 圈 + LRU 逐出，编辑/滚动
+   只重渲可见块。符号位图缓存（WeakMap 按符号对象弱引用）沿用。
+   z 序：底 SVG(热区/高亮/行号列号) < #symLayer(瓦片) < 顶 SVG(外框/边框/
+   标注/框选/ghost)，外框改为顶 SVG rect（原在 canvas 里画，随位图会糊） */
 const symImgs = new WeakMap();  // 符号对象 → HTMLImageElement
 let symPending = 0;             // 尚未解码完成的图片数
 let symWaiters = [];            // 等待全部图片就绪的回调（自测用）
-let symRaf = 0;
+let layer = null;               // createTileLayer 实例（onMounted 创建）
 
 function symImage(sym) {
   let img = symImgs.get(sym);
   if (!img) {
     img = new Image();
     symPending++;
-    img.onload = () => { symPending--; flushSymWaiters(); scheduleSymDraw(); };
+    img.onload = () => {
+      symPending--;
+      flushSymWaiters();
+      // 解码前渲染的瓦片画的是空帧，必须标记重渲，否则迟到的符号永远画不上
+      if (layer) { layer.markAllDirty(); layer.schedule(); }
+    };
     img.onerror = () => { symPending--; flushSymWaiters(); console.warn('符号位图生成失败:', sym && sym.id); };
     img.src = symDataUrl(sym);
     symImgs.set(sym, img);
@@ -79,55 +83,24 @@ function flushSymWaiters() {
   const ws = symWaiters; symWaiters = [];
   ws.forEach(r => r());
 }
-function drawSymLayer() {
-  symRaf = 0;
-  const cv = symCanvasEl.value;
-  if (!cv) return;
-  const { rows, cols, zoom } = state;
-  const cssW = cols * CELL * zoom, cssH = rows * CELL * zoom;
-  if (!(cssW > 0 && cssH > 0)) return;
-  /* backing store 上限：防超大网格 × 高缩放时位图内存爆炸（1600 万像素 ≈ 64MB） */
-  let scale = Math.min(window.devicePixelRatio || 1, 16384 / cssW, 16384 / cssH);
-  if (cssW * cssH * scale * scale > 16 * 1024 * 1024)
-    scale = Math.sqrt(16 * 1024 * 1024 / (cssW * cssH));
-  const bw = Math.max(1, Math.round(cssW * scale)), bh = Math.max(1, Math.round(cssH * scale));
-  if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
-  const ctx = cv.getContext('2d');
-  ctx.setTransform(bw / cssW, 0, 0, bh / cssH, 0, 0);
-  ctx.clearRect(0, 0, cssW, cssH);
-  const px = CELL * zoom; // 1 格 CSS 像素
-  /* 网格线 + 外框（原先在 SVG 里，随符号层一起位图化） */
-  ctx.strokeStyle = '#cbd5e1';
-  ctx.lineWidth = 0.025 * px;
-  ctx.beginPath();
-  for (let c = 0; c <= cols; c++) { ctx.moveTo(c * px, 0); ctx.lineTo(c * px, cssH); }
-  for (let r = 0; r <= rows; r++) { ctx.moveTo(0, r * px); ctx.lineTo(cssW, r * px); }
-  ctx.stroke();
-  const obw = 0.06 * px;
-  ctx.strokeStyle = '#475569';
-  ctx.lineWidth = obw;
-  ctx.strokeRect(obw / 2, obw / 2, cssW - obw, cssH - obw);
-  /* 符号位图 blit */
-  for (const { p, sym, ty } of placed.value) {
-    const img = symImage(sym);
-    if (!img.complete || !img.naturalWidth) continue; // 解码中，onload 后整体重绘
-    ctx.drawImage(img, p.col * px, ty * px, p.w * px, p.h * px);
-  }
-}
-function scheduleSymDraw() {
-  if (symRaf) return;
-  symRaf = requestAnimationFrame(() => { symRaf = 0; drawSymLayer(); });
-}
 watchEffect(() => {
-  // 依赖收集：放置/缩放/网格尺寸变化（customSymbols 经 getSym 传导到 placed）→ 重绘
-  placed.value; state.zoom; state.cols; state.rows;
-  scheduleSymDraw();
+  /* 依赖收集：内容版本号（图面真变了才自增——覆盖绘制长度不变也覆盖到）、
+     缩放、网格尺寸、自定义符号编辑 → 触发瓦片重渲。
+     不能只读 placements.length：同格覆盖时长度不变会漏触发，
+     导致「改动攒到下次编辑才一起画出来」 */
+  contentRev.n; state.zoom; state.cols; state.rows;
+  for (const s of state.customSymbols) void s.id;
+  if (layer) layer.schedule();
 });
-/* 自测钩子：selftest 等待图片解码后同步重绘，再取像素断言 */
+/* 自测钩子：selftest 等待图片解码 + 可见瓦片渲完后同步重绘，再取像素断言 */
 if (typeof window !== 'undefined') {
   window.__symLayer = {
-    redraw: drawSymLayer,
-    ready() { return symPending > 0 ? new Promise(r => symWaiters.push(r)) : Promise.resolve(); },
+    redraw() { if (layer) layer.reconcile(); },
+    async ready() {
+      if (symPending > 0) await new Promise(r => symWaiters.push(r));
+      if (layer) await layer.readyTiles();
+    },
+    debug() { return layer ? layer.debug() : null; },
   };
 }
 
@@ -280,11 +253,16 @@ function updateGhost(cell) {
 
 onMounted(() => {
   window.addEventListener('pointerup', onPointerUp);
-  scheduleSymDraw();
+  layer = createTileLayer({
+    host: symLayerEl.value,
+    scrollEl: symLayerEl.value ? symLayerEl.value.closest('.canvas-scroll') : null,
+    symImage, getSym,
+  });
+  layer.schedule();
 });
 onUnmounted(() => {
   window.removeEventListener('pointerup', onPointerUp);
-  if (symRaf) cancelAnimationFrame(symRaf);
+  if (layer) { layer.destroy(); layer = null; }
 });
 </script>
 
@@ -329,11 +307,14 @@ onUnmounted(() => {
       </template>
     </svg>
 
-    <!-- 符号层：canvas 位图，零 DOM 节点（网格线+外框+所有符号） -->
-    <canvas id="symCanvas" ref="symCanvasEl" :style="canvasStyle"></canvas>
+    <!-- 符号层：16 格瓦片 canvas 容器（tileLayer.js 命令式管理，网格线+符号位图） -->
+    <div id="symLayer" ref="symLayerEl" :style="canvasStyle"></div>
 
-    <!-- 顶层 SVG：边框 / 区域标注 / 框选 / ghost（位于符号位图之上，不接收指针） -->
+    <!-- 顶层 SVG：外框 / 边框 / 区域标注 / 框选 / ghost（位于符号位图之上，不接收指针） -->
     <svg id="chartTop" xmlns="http://www.w3.org/2000/svg" :viewBox="viewBox" pointer-events="none">
+      <!-- 图解外框（原在 canvas 里画，随位图会糊；SVG 矢量永不糊） -->
+      <rect id="chartFrame" x="0.03" y="0.03" :width="state.cols - 0.06" :height="state.rows - 0.06"
+        fill="none" stroke="#475569" stroke-width="0.06"/>
       <!-- 粗边框层 -->
       <g id="borderLayer" pointer-events="none">
         <rect v-for="(b, i) in state.borders" :key="i"

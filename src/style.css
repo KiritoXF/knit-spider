@@ -164,6 +164,15 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
   font-variant-numeric: tabular-nums;
 }
 .tb-upd-ico { width: 12px; height: 12px; flex: none; color: var(--acc-ink-3); }
+/* 图解短校验码：等宽小字，点击复制（内容不变码不变） */
+.tb-check {
+  flex: none; border: 0; background: transparent; cursor: copy;
+  font-family: ui-monospace, Consolas, monospace; font-size: 10.5px;
+  color: var(--acc-ink-3); padding: 2px 4px; border-radius: 4px;
+  font-variant-numeric: tabular-nums; letter-spacing: .04em;
+  transition: background-color .15s, color .15s;
+}
+.tb-check:hover { background: var(--acc-50); color: var(--acc-700); }
 
 /* 文件下拉菜单（缝线风 · 与针法字典同一暖纸语言） */
 .tb-menu-wrap { position: relative; }
@@ -479,12 +488,13 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* 画布三明治结构：底 SVG(热区/高亮/行号列号) < #symCanvas(位图符号层) < 顶 SVG(边框/标注/框选) */
+/* 画布三明治结构：底 SVG(热区/高亮/行号列号) < #symLayer(瓦片位图符号层) < 顶 SVG(外框/边框/标注/框选) */
 #chartWrap { position: relative; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
 #chart, #chartTop { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
 #chart { cursor: crosshair; }
 #chartTop { pointer-events: none; }
-#symCanvas { position: absolute; display: block; pointer-events: none; }
+#symLayer { position: absolute; pointer-events: none; }
+#symLayer canvas { position: absolute; display: block; pointer-events: none; }
 .cell { pointer-events: all; }
 .rownum { cursor: pointer; user-select: none; }
 .rownum:hover { fill: #d97706; }
@@ -809,7 +819,7 @@ text { user-select: none; }
 #chart.cur-erase { cursor: pointer; }
 #chart.cur-paste { cursor: copy; }
 
-/* ---- 换配色过渡：栏面/边框/文字 0.2s 平滑跟随（不含画布 #chartWrap/#chart/#symCanvas） ---- */
+/* ---- 换配色过渡：栏面/边框/文字 0.2s 平滑跟随（不含画布 #chartWrap/#chart/#symLayer） ---- */
 .topbar, .toolbar, .sidebar, .main, .home, .home-top, .home-foot,
 .tb-menu, .tb-panel, .tb-btn, .tb-btn-primary, .tb-input,
 .tb-menu-item, .tb-mi-ico, .wc-btn, .wc-chip,
