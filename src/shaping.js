@@ -11,7 +11,7 @@
      新增列上；符号 w>1 时横向占多格。
    规则列表 shaping.rules 仅会话级（不持久化），规则可叠加、可重复应用。 */
 import { reactive, toRaw } from 'vue';
-import { state, save, getSym, isChartLocked } from './store.js';
+import { state, save, getSym, isChartLocked, markCanvasAllDirty } from './store.js';
 import { toast } from './ui.js';
 
 export const DEC_METHODS = ['bindOff', 'k2tog', 'ssk', 'k2togP', 'sskP',
@@ -72,6 +72,7 @@ export function applyRule(rule) {
   else applyDec(rule, d, add, T0, every, sts, times);
   if (!add.length) { toast('没有可绘制的格子（超出图解范围？）', 'warn'); return 0; }
   commit(add);
+  markCanvasAllDirty(); // 塑形批量落格，按全图重渲
   save();
   return add.length;
 }
@@ -115,7 +116,10 @@ export function applyRules() {
     else applyDec(rule, d, add, T0, every, sts, times);
     if (add.length) { commit(add); total += add.length; }
   }
-  if (total) save();
+  if (total) {
+    markCanvasAllDirty(); // 塑形批量落格，按全图重渲
+    save();
+  }
   else toast('没有可绘制的格子（超出图解范围？）', 'warn');
   return total;
 }
@@ -253,12 +257,13 @@ function applyInc(rule, d, add, T0, every, sts, times) {
   }
 }
 
-/* 左扩列：全部图面内容右移 delta 列 */
+/* 左扩列：全部图面内容右移 delta 列。
+   必须整体替换（元素也要新对象）：撤销历史按引用追踪容器，原地改会污染历史 */
 function shiftAll(delta) {
-  for (const p of state.placements) p.col += delta;
-  for (const b of state.borders) b.col += delta;
-  for (const a of state.annotations) a.col += delta;
+  state.placements = toRaw(state.placements).map(p => ({ ...p, col: p.col + delta }));
+  state.borders = toRaw(state.borders).map(b => ({ ...b, col: b.col + delta }));
+  state.annotations = toRaw(state.annotations).map(a => ({ ...a, col: a.col + delta }));
   const nl = {};
-  for (const k in state.colLabels) nl[+k + delta] = state.colLabels[k];
+  for (const k in toRaw(state.colLabels)) nl[+k + delta] = toRaw(state.colLabels)[k];
   state.colLabels = nl;
 }

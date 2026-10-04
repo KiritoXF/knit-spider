@@ -4,8 +4,10 @@ import App from './App.vue';
 import { load, resetHistory } from './store.js';
 import { initTutorials } from './tutorialStore.js';
 import { runSelfTest } from './selftest.js';
+import { initInpProbe } from './inpProbe.js';
 
 /* ---------------- 启动 ---------------- */
+initInpProbe(); // INP 自检探针：仅 ?inp=1 时启用（性能诊断用，普通使用零开销）
 load(); // 载入 localStorage（自动迁移旧档），并清理引用了不存在符号的放置
 resetHistory(); // 以载入后的状态作为撤销起点
 

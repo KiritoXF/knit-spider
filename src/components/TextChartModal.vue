@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
-import { state, activeWork, getSym, stepDoneRows } from '../store.js';
+import { state, activeWork, getSym, stepDoneRows, setDoneRows, contentRev } from '../store.js';
 import { ui, dlg } from '../ui.js';
 import { chartToTextRows } from '../textChart.js';
 import { tutorialUrlForGroup, tutorialUrlForSid, tutorialTextForGroup, tutorialTextForSid } from '../tutorials.js';
@@ -11,7 +11,33 @@ let copiedTimer = null;
 
 const close = () => { hidePop(); ui.textChartOpen = false; };
 
-const rows = computed(() => chartToTextRows(state));
+/* 正文重算必须防抖：这里是常驻挂载组件，若每次图面编辑都同步重算
+   chartToTextRows + 重渲整个文字列表（400 行 × 全部分组 DOM），开着文字解
+   编辑图解时单格修改会卡数百毫秒～秒级（实测 40k 放置 ~2000ms）。
+   策略：弹窗关着完全不重算；开着时 contentRev 变化后 250ms 合并重算；
+   重算期间显示「正在生成文字解」过渡（大图解重算 + 全列表渲染可感） */
+const rows = ref([]);
+const genLoading = ref(false);
+let rowsTimer = 0;
+function rebuildRows() {
+  clearTimeout(rowsTimer);
+  rowsTimer = 0;
+  rows.value = chartToTextRows(state);
+}
+async function rebuildRowsWithLoading() {
+  genLoading.value = true;
+  await nextTick();
+  await new Promise(r => setTimeout(r, 30)); // 先让 loading 画出一帧
+  rebuildRows();
+  genLoading.value = false;
+}
+watch(() => contentRev.n, () => {
+  if (!ui.textChartOpen) return;
+  if (rowsTimer) return; // 已有待重算，合并
+  rowsTimer = setTimeout(() => { rowsTimer = 0; rebuildRowsWithLoading(); }, 250);
+});
+onMounted(() => { if (ui.textChartOpen) rebuildRows(); });
+onUnmounted(() => clearTimeout(rowsTimer));
 const text = computed(() => rows.value.map(x => x.text).join('\n'));
 /* 弹窗标题：作品名 · 图解名 */
 const headTitle = computed(() => {
@@ -20,9 +46,12 @@ const headTitle = computed(() => {
   return (w ? w.name : '') + ' · ' + (c ? c.name : '');
 });
 /* 展示用：分组自带 sid（符号 id），附教程图 URL 与文字说明；
-   两者皆未配置的名称 tut=null，悬停无感 */
+   两者皆未配置的名称 tut=null，悬停无感。
+   text / tutFlags 供 v-memo 用：单格编辑只变更个别行，行内容没变就跳过
+   整行 vnode diff（400 行全文重建是开着文字解编辑卡顿的大头） */
 const view = computed(() => rows.value.map(x => ({
-  r: x.r, ws: x.ws, count: x.count,
+  r: x.r, ws: x.ws, count: x.count, text: x.text,
+  tutFlags: (x.groups || []).map(g => (g.tut ? 'i' : '') + (g.tutText ? 't' : '')).join(','),
   groups: (x.groups || []).map(g => ({
     ...g, tut: tutorialUrlForGroup(g), tutText: tutorialTextForGroup(g),
   })),
@@ -49,10 +78,31 @@ const legend = computed(() => {
    正文里只靠行高亮体现进度（已织行淡化 + 当前待织行高亮） */
 const curRow = computed(() => state.doneRows + 1);
 const allDone = computed(() => state.doneRows >= state.rows);
+/* 计数器可直接输入：非法输入还原为当前值，合法值经 setDoneRows 收敛（0..rows） */
+function onProgInput(e) {
+  const v = Math.round(+e.target.value);
+  if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 0 && v <= state.rows &&
+      v !== state.doneRows) {
+    setDoneRows(v);
+  }
+  e.target.value = state.doneRows;
+}
 const docEl = ref(null);
+/* 编织进度（针数口径）：各行 count 相加为总针数，未织行（行号 > doneRows）
+   的针数为剩余。空白格按背景针（上/下针）计入，与文字解口径一致 */
+const stitchStat = computed(() => {
+  let total = 0, remain = 0;
+  for (const row of rows.value) {
+    total += row.count;
+    if (row.r > state.doneRows) remain += row.count;
+  }
+  const pct = total ? Math.round(((total - remain) / total) * 100) : 0;
+  return { total, remain, pct };
+});
 /* 打开弹窗时把当前待织行滚到视口偏上的位置，一进来就能接着织 */
 watch(() => ui.textChartOpen, async open => {
   if (!open) return;
+  await rebuildRowsWithLoading(); // 先出 loading 过渡再重算（大图解打开可感）
   await nextTick();
   const box = docEl.value;
   const cur = box && box.querySelector('.tcm-row-cur');
@@ -196,13 +246,21 @@ function onDownload() {
             <span class="tcm-prog-label">织完</span>
             <button id="tcDonePrev" class="tcm-step" :disabled="state.doneRows <= 0"
               title="退回一行" @click="stepDoneRows(-1)">−</button>
-            <span id="tcProgNum" class="tcm-prog-num" :title="allDone
-              ? `已织完全部 ${state.rows} 行`
-              : `已织完 ${state.doneRows} 行，当前待织第 ${state.doneRows + 1} 行`">
-              <b>{{ state.doneRows }}</b><span> / {{ state.rows }}</span>
-            </span>
+            <input id="tcProgNum" class="tcm-prog-input" type="text" inputmode="numeric"
+              :value="state.doneRows" :title="allDone
+                ? `已织完全部 ${state.rows} 行（可直接输入行数）`
+                : `已织完 ${state.doneRows} 行，当前待织第 ${state.doneRows + 1} 行（可直接输入行数）`"
+              @focus="$event.target.select()"
+              @keydown.enter="$event.target.blur()"
+              @change="onProgInput($event)" />
+            <span class="tcm-prog-sep">/ {{ state.rows }}</span>
             <button id="tcDoneNext" class="tcm-step" :disabled="allDone"
               title="把下一行记为已织完" @click="stepDoneRows(1)">+</button>
+          </div>
+          <div class="tcm-prog-st" title="按各行针数估算（空白格按背景针计入）">
+            <div class="tcm-prog-bar"><i :style="{ width: stitchStat.pct + '%' }"></i></div>
+            <span class="tcm-prog-st-num">剩 <b>{{ stitchStat.remain }}</b> 针 · 已织
+              {{ stitchStat.total - stitchStat.remain }} / {{ stitchStat.total }}（{{ stitchStat.pct }}%）</span>
           </div>
           <div class="tcm-side-head">
             <h3>本图解用到的符号</h3>
@@ -234,10 +292,15 @@ function onDownload() {
             <p class="tcm-hint"><b>虚线下划线</b> = 有织法教程（图片或文字说明），悬停针名即可查看。</p>
           </div>
         </aside>
-        <!-- 右栏：文字解正文，独立滚动 -->
+        <!-- 右栏：文字解正文，独立滚动；大图解重算期间显示生成过渡 -->
         <div class="tcm-main">
-          <div id="textChartView" ref="docEl" class="tcm-doc" @scroll.passive="hidePop">
+          <div v-if="genLoading" id="tcmGen" class="tcm-gen">
+            <div class="loading-yarn">🧶</div>
+            <span>正在生成文字解…</span>
+          </div>
+          <div v-else id="textChartView" ref="docEl" class="tcm-doc" @scroll.passive="hidePop">
             <div v-for="row in view" :key="row.r" class="tcm-row"
+              v-memo="[row.text, row.tutFlags, row.r <= state.doneRows, row.r === curRow && !allDone]"
               :class="{ 'tcm-row-ws': row.ws, 'tcm-row-done': row.r <= state.doneRows,
                         'tcm-row-cur': row.r === curRow && !allDone }">
               <span class="tcm-rnog">

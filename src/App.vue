@@ -9,8 +9,7 @@ import ZoomControl from './components/ZoomControl.vue';
 import HomeView from './components/HomeView.vue';
 import EditorModal from './components/EditorModal.vue';
 import TextChartModal from './components/TextChartModal.vue';
-import TutorialModal from './components/TutorialModal.vue';
-import SymbolManagerModal from './components/SymbolManagerModal.vue';
+import SymbolCenterModal from './components/SymbolCenterModal.vue';
 import HelpModal from './components/HelpModal.vue';
 import ChangelogModal from './components/ChangelogModal.vue';
 import ChartCodeModal from './components/ChartCodeModal.vue';
@@ -48,8 +47,7 @@ function onWheelZoom(e) {
   <TextChartModal v-if="ui.view === 'editor'"/>
   <!-- 自定义符号编辑器：图解页与首页符号库都能打开，故挂在最外层（自身按 ui.editorOpen 显隐） -->
   <EditorModal/>
-  <TutorialModal/>
-  <SymbolManagerModal/>
+  <SymbolCenterModal/>
   <HelpModal/>
   <ChangelogModal/>
   <ChartCodeModal v-if="ui.view === 'editor'"/>

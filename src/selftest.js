@@ -22,6 +22,13 @@ import { symDataUrl } from './util.js';
 
 /* ---------------- 自测试：访问 ?test=1 时由 main.js 调用（Vue 响应式渲染，全程 async） ---------------- */
 export async function runSelfTest() {
+  /* 后台/被遮挡窗口的 requestAnimationFrame 会永久冻结：瓦片层的 schedule/
+     ready() 都挂在 rAF 上，会假死在 await L.ready()（自动化测试常见）。
+     测试环境下改用 setTimeout 模拟 16ms 帧，保证任何窗口状态都能跑 */
+  if (!window.__rafFallback) {
+    window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+    window.__rafFallback = true;
+  }
   const results = [];
   const tick = () => nextTick();
   const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -110,22 +117,51 @@ export async function runSelfTest() {
     return SYMBOLS.bindOff.svg.includes('fill="#000000"');
   });
   await t('rowside-flip', async () => {
-    state.rowStartSide = 'left'; await tick();
+    // 行号已虚拟化（只渲染可视区±2 格），行号 1/2 在图解底部，先滚到底。
+    // 用 __chartVis.update 同步刷新可视范围（scroll→rAF 链在节流环境下时序不定）
+    const sc = document.querySelector('.canvas-scroll');
+    const vis = window.__chartVis;
+    const goBottom = async () => {
+      sc.scrollTop = 999999;
+      if (vis) vis.update();
+      await tick();
+    };
+    await goBottom();
+    const r1right0 = document.querySelector('.rownum[data-r="1"]').getAttribute('x') === String(state.cols + 0.45);
+    const r2left0 = document.querySelector('.rownum[data-r="2"]').getAttribute('x') === '-0.45';
+    state.rowStartSide = 'left'; await goBottom();
     const leftOk = document.querySelector('.rownum[data-r="1"]').getAttribute('x') === '-0.45';
     const r2right = document.querySelector('.rownum[data-r="2"]').getAttribute('x') === String(state.cols + 0.45);
-    state.rowStartSide = 'right'; await tick();
+    state.rowStartSide = 'right'; await goBottom();
     const rightOk = document.querySelector('.rownum[data-r="1"]').getAttribute('x') === String(state.cols + 0.45);
-    return leftOk && r2right && rightOk;
+    sc.scrollTop = 0;
+    if (vis) vis.update();
+    await tick();
+    return r1right0 && r2left0 && leftOk && r2right && rightOk;
   });
   await t('collabel-pointerdown', async () => {
     const oldPrompt = window.prompt;
     window.prompt = () => '7';
-    const el = document.querySelector('.colhit[data-c="4"]');
+    let el = document.querySelector('.colhit[data-c="4"]');
+    if (!el) {
+      // 诊断：虚拟化列号应在可视范围内，若缺失记录现场
+      const sc = document.querySelector('.canvas-scroll');
+      window.__colDbg = {
+        n: document.querySelectorAll('.colhit').length,
+        cs: [...document.querySelectorAll('.colhit')].map(x => x.dataset.c).join(','),
+        sl: sc && sc.scrollLeft, st: sc && sc.scrollTop,
+        cw: sc && sc.clientWidth, cols: state.cols, zoom: state.zoom,
+      };
+      sc.scrollLeft = 0; sc.scrollTop = 0;
+      if (window.__chartVis) window.__chartVis.update();
+      await tick();
+      el = document.querySelector('.colhit[data-c="4"]');
+    }
     el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
     window.prompt = oldPrompt;
     await tick();
     const ok = labelFor(4) === '7' && document.querySelector('.colnum[data-c="4"]').textContent === '7';
-    delete state.colLabels['4']; await tick();
+    state.colLabels = { ...state.colLabels }; delete state.colLabels['4']; await tick();
     return ok;
   });
   await t('place-cable-2x2', async () => {
@@ -140,11 +176,20 @@ export async function runSelfTest() {
     return state.placements.length === 2;
   });
   await t('highlight-row3-click', async () => {
+    // 行号 3 在图解底部，虚拟化后需先滚到底再点
+    const sc = document.querySelector('.canvas-scroll');
+    sc.scrollTop = 999999;
+    if (window.__chartVis) window.__chartVis.update();
+    await tick();
     const el = document.querySelector('.rownum[data-r="3"]');
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await tick();
-    return state.highlight === 3 && !!document.querySelector('#hlLayer rect') &&
+    const ok = state.highlight === 3 && !!document.querySelector('#hlLayer rect') &&
       (flushPersist(), JSON.parse(localStorage.getItem(LS_KEY)).highlight === 3);
+    sc.scrollTop = 0;
+    if (window.__chartVis) window.__chartVis.update();
+    await tick();
+    return ok;
   });
   await t('erase-knit', async () => {
     selectTool('erase'); applyAt(10, 5); selectTool('knit');
@@ -275,7 +320,7 @@ export async function runSelfTest() {
       !!document.querySelector('.colhit[data-c="0"]');
   });
   await t('collabel-set-text', async () => {
-    state.colLabels['2'] = 'A'; await tick();
+    state.colLabels = { ...state.colLabels, '2': 'A' }; await tick();
     const el = document.querySelector('.colnum[data-c="2"]');
     return labelFor(2) === 'A' && el && el.textContent === 'A';
   });
@@ -491,11 +536,13 @@ export async function runSelfTest() {
   await t('switch-perf-big-chart', async () => {
     // 400×400 + 1 万符号的大图解，切换渲染必须远小于用户可感的"几秒"
     resizeGrid(400, 400); // 新上限：瓦片渲染必须扛住 400×400
+    const bulk = [];
     for (let r = 1; r <= 100; r++) {
       for (let c = 0; c < 400; c += 4) {
-        state.placements.push({ sym: 'k2tog', col: c, row: r, w: 1, h: 1 });
+        bulk.push({ sym: 'k2tog', col: c, row: r, w: 1, h: 1 });
       }
     }
+    state.placements = state.placements.concat(bulk); // 整体替换（撤销按引用追踪）
     save();
     await tick();
     const idBig = state.activeChartId;
@@ -521,9 +568,11 @@ export async function runSelfTest() {
     // ② 粘贴对每个新符号 filter 一遍全数组（O(放置数×粘贴数)）。
     // 阈值取得很宽松（约 5~10 倍余量），只拦「退化成秒级」的算法性回归
     resizeGrid(120, 150);
+    const bulk = [];
     for (let r = 1; r <= 150; r++)
       for (let c = 0; c < 120; c += 2)
-        state.placements.push({ sym: 'k2tog', col: c, row: r, w: 1, h: 1 });
+        bulk.push({ sym: 'k2tog', col: c, row: r, w: 1, h: 1 });
+    state.placements = state.placements.concat(bulk); // 整体替换（撤销按引用追踪）
     save(); await tick();
     // 手绘/擦除：连续 100 次落格
     const t0 = performance.now();
@@ -574,6 +623,24 @@ export async function runSelfTest() {
     selectTool('knit');
     resetStateForTest(); await tick();
     return blankBefore && inkAfter;
+  });
+
+  await t('dirty-region-neighbors', async () => {
+    // 脏区增量重渲回归：编辑格所在瓦片里、编辑矩形之外的相邻符号必须保留。
+    // 曾按「瓦片清桶、矩形回填」导致同瓦片邻居从渲染中消失
+    resetStateForTest(); await tick();
+    selectTool('knit');
+    applyAt(1, 2); applyAt(2, 2); applyAt(20, 2); // 三枚 knit；col20 在下一块瓦片
+    applyAt(5, 2); // 在同瓦片内、与已有符号不相交的位置再落一格
+    await tick();
+    const ty = state.rows - 2;
+    const cv = await symCanvasReady(20, ty);
+    const ok = !!cv &&
+      blockHasInk(cv, 1, ty, 1, 1) && blockHasInk(cv, 2, ty, 1, 1) &&
+      blockHasInk(cv, 5, ty, 1, 1) && blockHasInk(cv, 20, ty, 1, 1);
+    selectTool('knit');
+    resetStateForTest(); await tick();
+    return ok;
   });
 
   await t('tile-straddle-cable', async () => {
@@ -795,8 +862,11 @@ export async function runSelfTest() {
     undo(); await tick();
     const okUndo = state.doneRows === 2 && state.placements.length === 0;
     // 文字解：左栏步进器改进度；已织行淡化、当前待织行高亮带「下一行」；
-    // 正文里不再有勾选框，进度只靠高亮体现
+    // 正文里不再有勾选框，进度只靠高亮体现。
+    // 打开有「正在生成文字解」过渡（大图解重算可感），先等它结束
     ui.textChartOpen = true; await tick();
+    for (let i = 0; i < 200 && document.getElementById('tcmGen'); i++)
+      await new Promise(r => setTimeout(r, 20));
     for (let i = 0; i < 4; i++) {
       document.getElementById('tcDoneNext').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await tick();
@@ -804,7 +874,12 @@ export async function runSelfTest() {
     const okCheck = state.doneRows === 6 &&
       document.querySelectorAll('.tcm-row-done').length === 6 &&
       document.querySelector('.tcm-row-cur .tcm-rno').textContent === 'r7' &&
-      document.querySelector('#tcProgNum b').textContent === '6';
+      document.querySelector('#tcProgNum').value === '6';
+    // 编织进度（针数口径）：24 列全按背景针计，6/36 行已织 → 剩 720 针、已织 144/864（17%）
+    const stNum = document.querySelector('.tcm-prog-st-num');
+    const okStitch = !!stNum && stNum.querySelector('b').textContent === '720' &&
+      /已织\s*144\s*\/\s*864（17%）/.test(stNum.textContent.replace(/\s+/g, ' ')) &&
+      !!document.querySelector('.tcm-prog-bar i');
     // 退回一行
     document.getElementById('tcDonePrev').dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await tick();
@@ -812,6 +887,16 @@ export async function runSelfTest() {
       document.querySelectorAll('.tcm-row-done').length === 5 &&
       document.querySelector('.tcm-row-cur .tcm-rno').textContent === 'r6' &&
       document.querySelectorAll('.tcm-check').length === 0;
+    // 计数器可直接输入：合法值生效、非法值还原
+    const progInput = document.getElementById('tcProgNum');
+    progInput.value = '10';
+    progInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+    const okProgInput = state.doneRows === 10 && progInput.value === '10';
+    progInput.value = 'abc';
+    progInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+    const okProgRevert = state.doneRows === 10 && progInput.value === '10';
     ui.textChartOpen = false; await tick();
     // 越界收敛 + 行数缩减
     setDoneRows(999); await tick();
@@ -824,9 +909,11 @@ export async function runSelfTest() {
     const zipSaved = JSON.parse(strFromU8(unzipSync(await buildWorkZip())['work.json']));
     const okV2 = zipSaved.works[0].charts[0].doneRows === 3;
     resetStateForTest(); await tick();
-    if (!(okStep && okUndo && okCheck && okBack && okMax && okShrink && okV1 && okV2))
-      window.__doneDetail = JSON.stringify({ okStep, okUndo, okCheck, okBack, okMax, okShrink, okV1, okV2 });
-    return okStep && okUndo && okCheck && okBack && okMax && okShrink && okV1 && okV2;
+    if (!(okStep && okUndo && okCheck && okStitch && okBack && okProgInput && okProgRevert &&
+        okMax && okShrink && okV1 && okV2))
+      window.__doneDetail = JSON.stringify({ okStep, okUndo, okCheck, okStitch, okBack, okProgInput, okProgRevert, okMax, okShrink, okV1, okV2 });
+    return okStep && okUndo && okCheck && okStitch && okBack && okProgInput && okProgRevert &&
+      okMax && okShrink && okV1 && okV2;
   });
 
   await t('zip-roundtrip', async () => {

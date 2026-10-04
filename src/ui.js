@@ -7,8 +7,7 @@ export const ui = reactive({
   editorOpen: false,
   textChartOpen: false, // 文字解弹窗
   helpOpen: false,      // 操作说明浮层
-  tutorialOpen: false,  // 织法教程图管理弹窗（本机上传库）
-  symbolOpen: false,    // 符号库管理弹窗（移除 / 删除符号，只在首页使用）
+  symbolOpen: false,    // 符号库弹窗（符号字典 + 教程图 + 反面织法 + 移除恢复，只在首页使用）
   changelogOpen: false, // 更新日志弹窗（数据在 changelog.js）
   chartCodeOpen: false, // 图解代码弹窗（复制 / 导入）
   chartCodeMode: 'copy', // 'copy' | 'import'

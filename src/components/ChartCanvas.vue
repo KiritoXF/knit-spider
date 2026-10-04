@@ -1,8 +1,8 @@
 <script setup>
-import { reactive, ref, computed, watchEffect, onMounted, onUnmounted, toRaw } from 'vue';
+import { reactive, ref, computed, watchEffect, onMounted, onUnmounted, toRaw, nextTick } from 'vue';
 import {
   state, labelFor, setColLabel, applyAt, commitBorder,
-  eraseAt, fits, toggleHighlight, getSym, pasteAt, clipSel, clipBoard, contentRev,
+  fits, toggleHighlight, getSym, pasteAt, clipSel, clipBoard, contentRev,
 } from '../store.js';
 import { CELL, symDataUrl } from '../util.js';
 import { createTileLayer } from '../tileLayer.js';
@@ -15,10 +15,49 @@ let selDrag = null;      // {c0,r0} 框选起点
 let skipClick = false;   // pointerdown 已处理（框选/粘贴）时跳过随后的 click，避免拖选被重置
 let lastCell = null;
 let lastHoverKey = null; // 上一次命中的格子，避免 pointermove 高频重复渲染
+let lastClient = null;   // 上一次 pointermove 的屏幕坐标：同位置事件直接跳过
+let lastPaint = null;    // 本次笔画最后一次落格：同格内的高频 move 不重复 applyAt
+let pdCell = null;       // pointerdown 已 applyAt 的 {c,r,tool}：click 不再重复落格
+let svgRect = null;      // #chart 的屏幕矩形缓存：pointermove 高频换算不做 getScreenCTM
 
 const ghost = reactive({ visible: false, x: 0, y: 0, w: 1, h: 1, color: '#3b82f6' });
 
 const rowTopY = r => state.rows - r;
+
+/* ---- 行号/列号虚拟化 ----
+   底层 SVG 的盒子随网格尺寸走（400×400@zoom1 ≈ 1.27 亿像素的图层），
+   若把 400 行号 + 400 列热区全部渲染：① 800 个 <text> 的 DOM/diff 常驻；
+   ② 图层被显存丢弃后重新光栅化要对巨型 SVG 全量走一遍，实测呈现段
+   （INP 的呈现分量）卡数百毫秒。改为只渲染可视区 ±2 格的行列号，
+   滚动/缩放时增量更新 */
+const scrollEl = ref(null);
+const vis = reactive({ c0: 0, c1: 0, w0: 1, w1: 1 }); // 可视列范围(0基) / 可视行号范围(1基)
+let visRaf = 0;
+function updateVis() {
+  const el = scrollEl.value;
+  if (!el) return;
+  const p = CELL * state.zoom;
+  const c0 = Math.max(0, Math.floor(el.scrollLeft / p) - 2);
+  const c1 = Math.min(state.cols - 1, Math.ceil((el.scrollLeft + el.clientWidth) / p) + 2);
+  const y0 = Math.max(0, Math.floor(el.scrollTop / p) - 2);
+  const y1 = Math.min(state.rows - 1, Math.ceil((el.scrollTop + el.clientHeight) / p) + 2);
+  vis.c0 = c0; vis.c1 = c1;
+  vis.w0 = Math.max(1, state.rows - y1);
+  vis.w1 = state.rows - y0;
+}
+function onScrollVis() {
+  if (visRaf) return;
+  visRaf = requestAnimationFrame(() => {
+    visRaf = 0;
+    refreshSvgRect(); // 滚动改变 #chart 的屏幕位置，矩形缓存必须同步
+    updateVis();
+  });
+}
+watchEffect(() => {
+  state.zoom; state.rows; state.cols; // 缩放/网格尺寸变化 → 立即重算可视范围
+  updateVis();
+  nextTick(refreshSvgRect); // 盒子尺寸随 zoom/rows/cols 变化，等 DOM 更新后刷新缓存
+});
 
 /* viewBox 与 CSS 宽高必须严格一致，否则 preserveAspectRatio 会留黑边导致点击错位 */
 const PAD_L = 1.3, PAD_R = 1.3, PAD_T = 0.7, PAD_B = 1.0; // 左侧/右侧行号区、上方、下方列号区
@@ -36,11 +75,13 @@ const canvasStyle = computed(() => ({
   height: (state.rows * CELL * state.zoom) + 'px',
 }));
 
-/* 工具光标：擦除=指针、粘贴=复制、框选/边框=十字；符号工具保持默认（有 ghost 预览） */
+/* 工具光标：自绘 SVG 光标贴合工具语义（见 style.css）；
+   框选=虚线选框、边框=四角括号、消去=橡皮擦、粘贴=复制；符号工具保持默认（有 ghost 预览） */
 const toolClass = computed(() => {
   if (state.tool === 'erase') return 'cur-erase';
   if (state.tool === 'paste') return 'cur-paste';
-  if (state.tool === 'select' || state.tool === 'border') return 'cur-cross';
+  if (state.tool === 'select') return 'cur-select';
+  if (state.tool === 'border') return 'cur-border';
   return '';
 });
 
@@ -58,6 +99,7 @@ const toolClass = computed(() => {
 const symImgs = new WeakMap();  // 符号对象 → HTMLImageElement
 let symPending = 0;             // 尚未解码完成的图片数
 let symWaiters = [];            // 等待全部图片就绪的回调（自测用）
+const symCanvases = new WeakMap(); // 符号对象 → Map<'宽x高 设备像素', 离屏 canvas>
 let layer = null;               // createTileLayer 实例（onMounted 创建）
 
 function symImage(sym) {
@@ -76,6 +118,25 @@ function symImage(sym) {
     symImgs.set(sym, img);
   }
   return img;
+}
+/* 符号预光栅化：SVG image 每次 drawImage 都要按目标尺寸重新光栅化
+   （矢量源），慢机器上每帧几百个 drawImage 就是数百毫秒。改为每个
+   (符号, 尺寸) 只光栅化一次到离屏 canvas，之后全部 canvas→canvas 拷贝 */
+function symBitmap(sym, wPx, hPx) {
+  let sizes = symCanvases.get(sym);
+  if (!sizes) { sizes = new Map(); symCanvases.set(sym, sizes); }
+  const key = Math.round(wPx) + 'x' + Math.round(hPx);
+  let cv = sizes.get(key);
+  if (!cv) {
+    const img = symImage(sym); // 同时承担解码计数/等待者机制
+    if (!img.complete || !img.naturalWidth) return null; // 解码中，onload 后整体重渲
+    cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(wPx));
+    cv.height = Math.max(1, Math.round(hPx));
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    sizes.set(key, cv);
+  }
+  return cv;
 }
 function flushSymWaiters() {
   if (symPending > 0) return;
@@ -107,25 +168,32 @@ if (typeof window !== 'undefined') {
 const rowNumbers = computed(() => {
   const row1Right = state.rowStartSide !== 'left';
   const arr = [];
-  for (let r = 1; r <= state.rows; r++) {
+  for (let r = vis.w0; r <= vis.w1; r++) { // 只渲染可视区行号（虚拟化）
     const onRight = (r % 2 === 1) === row1Right;
     arr.push({ r, x: onRight ? state.cols + 0.45 : -0.45, y: rowTopY(r) + 0.52 });
   }
   return arr;
 });
-const colHits = computed(() =>
-  Array.from({ length: state.cols }, (_, c) => ({ c, label: labelFor(c) })));
+const colHits = computed(() => {
+  const out = [];
+  for (let c = vis.c0; c <= vis.c1; c++) out.push({ c, label: labelFor(c) });
+  return out;
+});
 
-/* 屏幕坐标 → SVG 用户坐标；用 getScreenCTM 精确换算，消除 viewBox 缩放偏差 */
+/* 屏幕坐标 → SVG 用户坐标。用缓存的 #chart 屏幕矩形做纯算术换算：
+   pointermove 高频触发，getScreenCTM 每次都要走矩阵+潜在布局，是
+   move 风暴里的隐形大头。矩形在挂载/滚动/缩放/窗口变化时刷新 */
+function refreshSvgRect() {
+  if (svgEl.value) svgRect = svgEl.value.getBoundingClientRect();
+}
 function pointToSvg(e) {
-  const svg = svgEl.value;
-  if (!svg) return null;
-  const pt = svg.createSVGPoint();
-  pt.x = e.clientX; pt.y = e.clientY;
-  const ctm = svg.getScreenCTM();
-  if (!ctm) return null;
-  const p = pt.matrixTransform(ctm.inverse());
-  return { x: p.x, y: p.y };
+  if (!svgRect) refreshSvgRect();
+  if (!svgRect) return null;
+  const vbW = state.cols + PAD_L + PAD_R, vbH = state.rows + PAD_T + PAD_B;
+  return {
+    x: (e.clientX - svgRect.left) * (vbW / svgRect.width) - PAD_L,
+    y: (e.clientY - svgRect.top) * (vbH / svgRect.height) - PAD_T,
+  };
 }
 function cellFromPoint(pt) {
   const { rows, cols } = state;
@@ -141,6 +209,7 @@ function editColLabel(c) {
 
 function onPointerDown(e) {
   if (e.button !== 0) return;
+  refreshSvgRect(); // 兜底刷新矩形缓存（覆盖漏刷场景，每次点击仅一次）
   // 列号标注区
   const colEl = e.target.closest ? e.target.closest('.colhit, .colnum') : null;
   if (colEl) { editColLabel(+colEl.dataset.c); return; }
@@ -161,6 +230,8 @@ function onPointerDown(e) {
   } else {
     applyAt(cell.c, cell.r);
     painting = true;
+    lastPaint = cell;
+    pdCell = { c: cell.c, r: cell.r, tool: state.tool };
   }
 }
 // click 回退：自动化工具/部分触屏只派发 click；applyAt 幂等
@@ -177,11 +248,16 @@ function onClick(e) {
     return;
   }
   if (state.tool === 'paste') { pasteAt(cell.c, cell.r); return; }
+  // pointerdown 已在同行同列用同一工具落格 → click 不再重复 applyAt
+  // （重复 applyAt 虽是内容 no-op，但要各扫一遍全量放置，8 万符号下白费几十毫秒）
+  if (pdCell && pdCell.c === cell.c && pdCell.r === cell.r && pdCell.tool === state.tool) return;
   applyAt(cell.c, cell.r);
 }
 /* 必须用 pointermove：网格区只有一个背景 rect 接收事件，
    pointerover 只在进入元素时触发一次，移动中不会更新高亮 */
 function onPointerMove(e) {
+  if (lastClient && e.clientX === lastClient.x && e.clientY === lastClient.y) return;
+  lastClient = { x: e.clientX, y: e.clientY };
   const cell = cellFromPoint(pointToSvg(e));
   const key = cell ? cell.c * 100000 + cell.r : -1;
   if (key === lastHoverKey) return; // 同一格内移动：无需更新
@@ -197,8 +273,13 @@ function onPointerMove(e) {
     return;
   }
   if (painting && (e.buttons & 1)) {
+    // 同格内的高频 move 不重复落格（applyAt 需扫全量放置，move 风暴会占满主线程）
+    if (lastPaint && lastPaint.c === cell.c && lastPaint.r === cell.r) return;
     const d = getSym(state.tool);
-    if (state.tool === 'erase' || (d && d.w === 1 && d.h === 1)) applyAt(cell.c, cell.r);
+    if (state.tool === 'erase' || (d && d.w === 1 && d.h === 1)) {
+      applyAt(cell.c, cell.r);
+      lastPaint = cell;
+    }
   }
 }
 function onPointerUp() {
@@ -209,16 +290,14 @@ function onPointerUp() {
   borderDrag = null;
   selDrag = null;
   painting = false;
+  lastPaint = null;
+  // 注意：pdCell 不在这里清——pointerup 先于 click 触发，click 的
+  // 去重要靠它（下次 pointerdown 会覆盖）
 }
 function onPointerLeave() {
   lastHoverKey = null;
   updateGhost(null);
 }
-function onContextMenu(e) {
-  const cell = cellFromPoint(pointToSvg(e));
-  if (cell) { e.preventDefault(); eraseAt(cell.c, cell.r); }
-}
-
 function footprintAt(c, r) {
   if (state.tool === 'erase' || state.tool === 'border') return { w: 1, h: 1 };
   const d = getSym(state.tool);
@@ -256,12 +335,22 @@ onMounted(() => {
   layer = createTileLayer({
     host: symLayerEl.value,
     scrollEl: symLayerEl.value ? symLayerEl.value.closest('.canvas-scroll') : null,
-    symImage, getSym,
+    symImage, symBitmap, getSym,
   });
   layer.schedule();
+  scrollEl.value = symLayerEl.value ? symLayerEl.value.closest('.canvas-scroll') : null;
+  if (scrollEl.value) scrollEl.value.addEventListener('scroll', onScrollVis, { passive: true });
+  window.addEventListener('resize', onScrollVis);
+  refreshSvgRect();
+  updateVis();
+  // 自测钩子：滚动虚拟化是异步链（scroll→rAF→渲染），测试用同步入口保证确定性
+  window.__chartVis = { update: updateVis, refreshRect: refreshSvgRect };
 });
 onUnmounted(() => {
   window.removeEventListener('pointerup', onPointerUp);
+  if (scrollEl.value) scrollEl.value.removeEventListener('scroll', onScrollVis);
+  window.removeEventListener('resize', onScrollVis);
+  if (visRaf) cancelAnimationFrame(visRaf);
   if (layer) { layer.destroy(); layer = null; }
 });
 </script>
@@ -279,7 +368,7 @@ onUnmounted(() => {
       @click="onClick"
       @pointermove="onPointerMove"
       @pointerleave="onPointerLeave"
-      @contextmenu="onContextMenu"
+      @contextmenu.prevent
     >
       <!-- 高亮当前行 -->
       <g id="hlLayer" pointer-events="none">

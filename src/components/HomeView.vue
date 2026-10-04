@@ -75,9 +75,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClickLinks));
           @click="cycleTheme">
           <span class="tb-sw-dot" :class="'tb-sw-' + state.theme"></span>{{ themeName(state.theme) }}
         </button>
-        <button id="btnHomeTutor" class="tb-btn" title="管理织法教程图（按符号上传图片，随作品 zip 分享）"
-          @click="ui.tutorialOpen = true">🧵 教程图</button>
-        <button id="btnHomeSymbols" class="tb-btn" title="符号库：移除不用的符号 / 删除自定义符号"
+        <button id="btnHomeSymbols" class="tb-btn" title="符号库：教程图 / 反面织法 / 移除恢复，随作品 zip 分享"
           @click="ui.symbolOpen = true">🧩 符号库</button>
         <button id="btnHomeChangelog" class="tb-btn" title="版本更新记录" @click="ui.changelogOpen = true">
           <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"

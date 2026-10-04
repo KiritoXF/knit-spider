@@ -616,7 +616,14 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
 .tcm-flash { font-size: 11px; color: #16a34a; }
 .tcm-hint { margin: 7px 0 0; font-size: 11px; line-height: 1.65; color: var(--acc-ink-3); }
 .tcm-hint b { color: var(--acc-700); font-weight: 700; }
-.tcm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.tcm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; position: relative; }
+/* 大图解重算文字解时的生成过渡 */
+.tcm-gen {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; flex-direction: column; gap: 10px;
+  align-items: center; justify-content: center;
+  background: var(--acc-surface); color: var(--acc-ink-2); font-size: 13px;
+}
 .tcm-doc { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 7px 8px 10px; }
 .tcm-row {
   display: flex; align-items: baseline; gap: 6px;
@@ -667,6 +674,32 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
   font-size: 11.5px; color: var(--acc-ink-3); font-variant-numeric: tabular-nums;
 }
 .tcm-prog-num b { font-size: 15px; font-weight: 800; color: var(--acc-700); }
+/* 计数器可直接输入：平时长得和数字一样，聚焦时浮出边框 */
+.tcm-prog-input {
+  width: 40px; padding: 1px 2px; text-align: center;
+  font-family: inherit; font-size: 15px; font-weight: 800;
+  color: var(--acc-700); font-variant-numeric: tabular-nums;
+  background: transparent; border: 1px solid transparent; border-radius: 6px;
+}
+.tcm-prog-input:hover { border-color: var(--acc-line); }
+.tcm-prog-input:focus { outline: none; background: var(--acc-surface-2); border-color: var(--acc-300); }
+.tcm-prog-sep { font-size: 11.5px; color: var(--acc-ink-3); font-variant-numeric: tabular-nums; }
+/* 编织进度（针数口径）：进度条 + 剩余针数，贴在步进器行下方 */
+.tcm-prog-st {
+  flex: none; padding: 7px 12px 9px;
+  background: var(--acc-15);
+  border-bottom: 1.5px dashed var(--acc-200);
+}
+.tcm-prog-bar {
+  height: 5px; border-radius: 3px; overflow: hidden;
+  background: var(--acc-surface-2); border: 1px solid var(--acc-200);
+}
+.tcm-prog-bar i { display: block; height: 100%; background: var(--acc-600); transition: width .3s; }
+.tcm-prog-st-num {
+  display: block; margin-top: 4px;
+  font-size: 11.5px; color: var(--acc-ink-3); font-variant-numeric: tabular-nums;
+}
+.tcm-prog-st-num b { color: var(--acc-700); font-weight: 800; }
 /* 已织完的行：文字褪成旧痕（只改文字颜色，不动整行） */
 .tcm-row-done .tcm-txt, .tcm-row-done .tcm-txt b { color: var(--acc-ink-3); font-weight: 600; }
 .tcm-row-done .tcm-rno { color: var(--acc-ink-3); }
@@ -815,8 +848,17 @@ text { user-select: none; }
 .toast-info { border-left-color: var(--acc-300); }
 @keyframes toastIn { from { opacity: 0; transform: translateY(6px); } }
 
-/* ---- 画布工具光标（默认已是十字） ---- */
-#chart.cur-erase { cursor: pointer; }
+/* ---- 画布工具光标：自绘 SVG 光标贴合工具语义（data URI，24×24，带热点坐标）----
+   框选=虚线选框（中心热点）、边框=四角括号（中心热点）、消去=橡皮擦（笔尖热点）、粘贴=复制 */
+#chart.cur-select {
+  cursor: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="24" height="24"%3E%3Crect x="4.5" y="4.5" width="15" height="15" fill="rgba(255,255,255,.55)" stroke="%23334155" stroke-width="1.6" stroke-dasharray="3 2" rx="1"/%3E%3C/svg%3E') 12 12, crosshair;
+}
+#chart.cur-border {
+  cursor: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="%23334155" stroke-width="2" stroke-linecap="round"%3E%3Cpath d="M4 9V5h4"/%3E%3Cpath d="M16 5h4v4"/%3E%3Cpath d="M20 15v4h-4"/%3E%3Cpath d="M8 19H4v-4"/%3E%3C/svg%3E') 12 12, crosshair;
+}
+#chart.cur-erase {
+  cursor: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="%23334155" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/%3E%3Cpath d="M22 21H7"/%3E%3Cpath d="m5 11 9 9"/%3E%3C/svg%3E') 5 19, pointer;
+}
 #chart.cur-paste { cursor: copy; }
 
 /* ---- 换配色过渡：栏面/边框/文字 0.2s 平滑跟随（不含画布 #chartWrap/#chart/#symLayer） ---- */

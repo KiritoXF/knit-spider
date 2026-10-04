@@ -65,7 +65,7 @@ export function setTheme(id) {
 applyTheme(); // 启动即应用（此时是默认值，load() 恢复用户选择后会再应用一次）
 
 /* ---------------- 反面行符号换算（用户覆盖） ----------------
-   入口在符号库弹窗（SymbolManagerModal）的「反面织法」模式。
+   入口在符号库弹窗（SymbolCenterModal）中按符号逐个配置。
    只存与默认规则（textChart.WS_SYM）不同的覆盖：targetId 为 '' 表示
    该符号改为正反面通用；删除覆盖即回到默认 */
 export function setWsMapping(symId, targetId) {
@@ -210,6 +210,7 @@ export function addWork(name) {
   state.activeChartId = w.charts[0].id;
   projectActive();
   resetHistory();
+  invalidatePersist(); // 作品树结构变了：全部落盘缓存失效
   save();
   return w.id;
 }
@@ -218,6 +219,7 @@ export function renameWork(id, name) {
   const t = String(name || '').trim();
   if (!w || !t) return false;
   w.name = uniqueName(t, state.works.filter(x => x.id !== id).map(x => x.name));
+  invalidatePersist(); // 改的可能不是活动作品，缓存全部失效
   save();
   return true;
 }
@@ -233,6 +235,7 @@ export function deleteWork(id) {
     projectActive();
     resetHistory();
   }
+  invalidatePersist();
   save();
   return true;
 }
@@ -293,87 +296,159 @@ export function deleteSelection() {
   const row0 = Math.min(rect.r0, rect.r1), row1 = Math.max(rect.r0, rect.r1);
   const inside = (c, r, w, h) => c >= col0 && r >= row0 && c + w - 1 <= col1 && r + h - 1 <= row1;
   const pn = state.placements.length, bn = state.borders.length, an = state.annotations.length;
-  state.placements = state.placements.filter(p => !inside(p.col, p.row, p.w, p.h));
-  state.borders = state.borders.filter(b => !inside(b.col, b.row, b.w, b.h));
-  state.annotations = state.annotations.filter(a => !inside(a.col, a.row, a.w, a.h));
+  const raw = toRaw(state.placements);
+  state.placements = raw.filter(p => !inside(p.col, p.row, p.w, p.h)); // raw 遍历避开代理陷阱
+  state.borders = toRaw(state.borders).filter(b => !inside(b.col, b.row, b.w, b.h));
+  state.annotations = toRaw(state.annotations).filter(a => !inside(a.col, a.row, a.w, a.h));
   const n = (pn - state.placements.length) + (bn - state.borders.length) + (an - state.annotations.length);
-  if (n) { save(); flashInfo(`已删除选区内 ${n} 项内容`); }
+  if (n) {
+    // 选区内的符号/边框/标注全被删，画布脏区=选区（符号只可能落在其内）
+    if (state.placements.length !== pn) {
+      markCanvasDirty(col0, row0, col1, row1);
+    } else {
+      markCanvasNone(); // 只删了边框/标注，符号位图无涉
+    }
+    save(true);
+    flashInfo(`已删除选区内 ${n} 项内容`);
+  }
   return n;
 }
 
-/* ---------------- 撤销 / 重做（会话级，不持久化） ---------------- */
-let history = [];      // {fp, snap}：每次图面变更后的内容快照
+/* ---------------- 撤销 / 重做（会话级，不持久化） ----------------
+   引用式补丁历史。前提不变量（务必维持）：图面容器 state.placements /
+   borders / annotations / colLabels / customSymbols / hiddenSymbols 只被
+   「整体替换」（filter/map/concat/展开重建），绝不允许 push/splice/下标
+   赋值/delete key 等原地修改（对「刚 new 出来还没进 state」的数组操作除外）。
+   这样历史条目直接持有替换前后的引用，undo/redo = O(1) 引用回填：
+   · 无每编辑全量 stringify（旧快照方案在 400×400 下单格编辑/粘贴 500ms
+     卡顿的根因），也无恢复时 parse 全图的开销；
+   · 每格编辑一个撤销步，粒度与旧版一致；
+   · 结构共享：旧数组只多占一个壳，单条目增量内存 O(改动量)。
+   （旧版「对象树深拷贝快照」曾致切回大图解 8-10s 长任务，勿回退） */
+let history = [];      // 每项 = 变更字段对 {字段: {from, to}}，仅含变化字段
 let hIndex = -1;
-/* 快照上限：快照是 JSON 字符串（见 makeSnap），30 份 × ~200KB ≈ 6MB 字符串；
-   曾用 100 份对象树深拷贝 ≈ 32 万个对象常驻，真实编辑会话中切回大图解
-   触发 8-10 秒主线程长任务（画面已显示但交互冻结，longtask 实测） */
 const UNDO_MAX = 30;
-/* 快照总字符预算（≈48MB UTF-16）：大图解单份快照可达数 MB，仅靠条数上限
-   会内存爆炸；超限从最旧淘汰（undo 可回退步数随之减少，属预期行为） */
-const SNAP_CHARS_MAX = 24e6;
-let inUndoRedo = false;
+let lastRefs = null;   // 上次 save 时的容器引用（变更检测基线）
+let lastFp = '';
 
-/* 图面内容快照：图面、全局库各一次 stringify（不再额外拼一份 fp 字符串，
-   大图解下每次编辑少一整份内容的分配）。快照存 JSON 字符串而非对象树：
-   字符串对 GC 几乎零压力（无对象图遍历标记），也免去每次保存的
-   stringify+parse 双开销；恢复时 parse 出全新对象，从根上杜绝快照与
-   state 共享数组引用导致的撤销污染。
-   序列化前先 toRaw 剥掉响应式代理：state 是深 reactive，直接 stringify
-   会对上万个 placement 逐个触发 Proxy get 陷阱（实测每次 save 53ms→2ms） */
-function chartContent() {
-  return {
-    rows: state.rows, cols: state.cols, rowStartSide: state.rowStartSide,
-    colLabels: toRaw(state.colLabels), placements: toRaw(state.placements),
-    borders: toRaw(state.borders), annotations: toRaw(state.annotations),
-  };
-}
-function makeSnap() {
-  return {
-    chartStr: JSON.stringify(chartContent()),
-    cs: JSON.stringify([toRaw(state.customSymbols), toRaw(state.hiddenSymbols)]),
-  };
-}
-/* 内容是否相同：直接比字符串（V8 对等长字符串比较接近 memcmp，比先哈希再比更省）
-   旧实现额外拼一份 fp 字符串，等于每次编辑多分配一整份图面内容。
-   图面与全局库分开比：全局自定义符号库变动要能撤销，但不该刷新图解「最后更改」 */
-function sameChart(a, b) { return !!a && a.chartStr === b.chartStr; }
-function sameSnap(a, b) { return sameChart(a, b) && a.cs === b.cs; }
 export const histState = reactive({ canUndo: false, canRedo: false });
 /* 图面内容版本号：图面内容真正变化时自增（编辑走 save 的判定，撤销/重做走
-   restoreSnap，换图/导入走 resetHistory）。顶栏校验码这类昂贵的派生物只需读它
-   即可注册依赖——不必再为了「感知变化」把整个图解 JSON.stringify 一遍 */
+   applyEntry，换图/导入走 resetHistory）。顶栏校验码这类昂贵的派生物只需读它
+   即可注册依赖 */
 export const contentRev = reactive({ n: 0 });
+
+/* ---- 画布脏区（瓦片层增量更新协议） ----
+   变更函数在调用 save() 前标出受影响的格域，瓦片层只重建/重渲相交块，
+   避免每次编辑 O(全部放置) 重建瓦片桶（400×400 满图下单格编辑的最大
+   剩余开销）。取值：null=未知（save 兜底按全图）| 'none'=图面变了但
+   符号层无涉（边框/标注/列号等，画在 SVG 层）| 'all'=全图 |
+   {c0,r0,c1,r1}=格域矩形（col 0 起、row 1 起、含符号足迹，删掉的旧符号
+   也要并进来，否则其残影留在矩形外的瓦片上） */
+let canvasDirty = null;
+export function markCanvasDirty(c0, r0, c1, r1) {
+  if (canvasDirty === 'all') return;
+  const rect = { c0: Math.max(0, Math.floor(c0)), r0: Math.max(1, Math.floor(r0)), c1, r1 };
+  if (!canvasDirty || canvasDirty === 'none') canvasDirty = rect;
+  else canvasDirty = {
+    c0: Math.min(canvasDirty.c0, rect.c0), r0: Math.min(canvasDirty.r0, rect.r0),
+    c1: Math.max(canvasDirty.c1, rect.c1), r1: Math.max(canvasDirty.r1, rect.r1),
+  };
+}
+export function markCanvasAllDirty() { canvasDirty = 'all'; }
+export function markCanvasNone() { if (canvasDirty === null) canvasDirty = 'none'; }
+export function takeCanvasDirty() { const d = canvasDirty; canvasDirty = null; return d; }
+
+/* 图面快速指纹：不分配字符串的双车道数值哈希（覆盖字段与撤销追踪一致）。
+   仅用于过滤「引用换了但内容没变」的空转替换（如 keepRaw 一个都没删），
+   避免空转产生撤销节点/刷新「最后更改」。sym 哈希按字符串 memo 化
+   （同一符号 id 全图重复几千次，只哈希一次）。 */
+const symHashMemo = new Map();
+function chartFpFast() {
+  let a = 0x811c9dc5 | 0, b = 0x01000193 | 0;
+  const m = v => { a = Math.imul(a ^ v, 16777619) | 0; b = Math.imul(b + v | 0, 2246822519) | 0; };
+  const ms = s => { // 串尾加分隔值，防不同串拼接同哈希
+    for (let i = 0; i < s.length; i++) m(s.charCodeAt(i) | 0);
+    m(0x9e3779b9);
+  };
+  m(state.rows | 0); m(state.cols | 0);
+  m(state.rowStartSide === 'left' ? 1 : 2);
+  const cl = toRaw(state.colLabels);
+  for (const k of Object.keys(cl)) { m(+k || 0); ms(String(cl[k])); }
+  const ps = toRaw(state.placements);
+  for (let i = 0; i < ps.length; i++) {
+    const p = ps[i];
+    let sh = symHashMemo.get(p.sym);
+    if (sh === undefined) {
+      const s = String(p.sym);
+      sh = 0x811c9dc5 | 0;
+      for (let j = 0; j < s.length; j++) sh = Math.imul(sh ^ s.charCodeAt(j), 16777619) | 0;
+      symHashMemo.set(p.sym, sh);
+    }
+    m(sh); m((p.col || 0) | 0); m((p.row || 0) | 0);
+    m((p.w || 1) | 0); m((p.h || 1) | 0);
+  }
+  const bs = toRaw(state.borders);
+  for (let i = 0; i < bs.length; i++) {
+    const x = bs[i];
+    m((x.col || 0) | 0); m((x.row || 0) | 0); m((x.w || 1) | 0); m((x.h || 1) | 0);
+  }
+  const as = toRaw(state.annotations);
+  for (let i = 0; i < as.length; i++) {
+    const x = as[i];
+    m((x.col || 0) | 0); m((x.row || 0) | 0); m((x.w || 1) | 0); m((x.h || 1) | 0); ms(String(x.text));
+  }
+  return a + '/' + b;
+}
+
+/* 变更检测基线：图面容器 + 网格尺寸/起始侧。全部走「整体替换」纪律后，
+   引用比较即可可靠判定变化 */
+function chartRefs() {
+  return {
+    placements: state.placements, borders: state.borders, annotations: state.annotations,
+    colLabels: state.colLabels, customSymbols: state.customSymbols,
+    hiddenSymbols: state.hiddenSymbols, cols: state.cols, rows: state.rows,
+    rowStartSide: state.rowStartSide,
+  };
+}
 function syncHistUI() {
-  histState.canUndo = hIndex > 0;
+  histState.canUndo = hIndex >= 0;
   histState.canRedo = hIndex < history.length - 1;
 }
 export function resetHistory() {
-  history = [makeSnap()];
-  hIndex = 0;
+  history = [];
+  hIndex = -1;
+  lastRefs = chartRefs();
+  lastFp = chartFpFast();
   contentRev.n++;
+  markCanvasAllDirty(); // 换图/导入/测试重置：画布整体重渲
   syncHistUI();
 }
+/* 撤销/重做：按字段回填引用（只动条目里变化的字段） */
+function applyEntry(e, dir) {
+  for (const k of ['placements', 'borders', 'annotations', 'colLabels',
+    'customSymbols', 'hiddenSymbols']) {
+    const f = e[k];
+    if (f) state[k] = dir < 0 ? f.from : f.to;
+  }
+  if (e.cols) state.cols = dir < 0 ? e.cols.from : e.cols.to;
+  if (e.rows) state.rows = dir < 0 ? e.rows.from : e.rows.to;
+  if (e.rowStartSide) state.rowStartSide = dir < 0 ? e.rowStartSide.from : e.rowStartSide.to;
+  syncActiveChart();
+  contentRev.n++;
+  markCanvasAllDirty(); // 撤销/重做可能涉及任意区域，按全图处理
+  schedulePersist();
+}
 export function undo() {
-  if (hIndex <= 0 || guardLocked()) return;
+  if (hIndex < 0 || guardLocked()) return;
+  applyEntry(history[hIndex], -1);
   hIndex--;
-  restoreSnap(history[hIndex]);
   syncHistUI();
 }
 export function redo() {
   if (hIndex >= history.length - 1 || guardLocked()) return;
   hIndex++;
-  restoreSnap(history[hIndex]);
+  applyEntry(history[hIndex], +1);
   syncHistUI();
-}
-function restoreSnap(snap) {
-  inUndoRedo = true;
-  try {
-    const cs = JSON.parse(snap.cs); // [customSymbols, hiddenSymbols]
-    applyChartObject({ ...JSON.parse(snap.chartStr), customSymbols: cs[0], hiddenSymbols: cs[1] });
-    syncActiveChart();
-    contentRev.n++; // 撤销/重做改了图面内容，派生物（如顶栏校验码）需重算
-    schedulePersist();
-  } finally { inUndoRedo = false; }
 }
 
 /* 框选（复制源）与剪贴板：会话级，不进存档 */
@@ -390,81 +465,125 @@ function flashInfo(text) {
   infoTimer = setTimeout(() => { clipBoard.info = ''; }, 2500);
 }
 
-/* localStorage 持久化对象：作品树 + 全局库 + 会话状态。
-   与 makeSnap 同理先 toRaw，否则整个作品树（含大图解的每个 placement）
-   都要走 Proxy 陷阱序列化 */
-function persistObject() {
-  return {
-    version: 2,
-    works: toRaw(state.works),
-    activeWorkId: state.activeWorkId,
-    activeChartId: state.activeChartId,
-    customSymbols: toRaw(state.customSymbols),
-    hiddenSymbols: toRaw(state.hiddenSymbols),
-    favorites: toRaw(state.favorites),
-    activeCats: toRaw(state.activeCats),
-    zoom: state.zoom, tool: state.tool, highlight: state.highlight,
-    theme: state.theme,
-    wsMap: toRaw(state.wsMap),
-  };
-}
 /* ---------------- 图解最后更改时间 ----------------
    chart.updatedAt 随存档保存。以图面内容是否真的变化为准（历史是否新增一条）：
    放置/擦除/边框/标注/列号/网格尺寸/正反侧/粘贴/删选区计时；
    锁定切换、重命名、收藏、面板偏好、换配色/换工具等不产生历史节点，不计时。
    图解切换时 resetHistory 会用当前图解重新播种，故无需再记图表 id */
 
-/* ---------------- localStorage 防抖写入 ----------------
+/* ---------------- localStorage 节流写入 ----------------
    persistObject() 会 stringify 整个作品树（所有作品所有图解），大图解时是
-   单次编辑里最大的一笔开销；编辑类操作高频调用 save()，改为 12s 节流式
-   落盘（连击期间每 12s 至多写一次，停手后 12s 内补写最后一次），
-   Ctrl+S / 页面隐藏/关闭前强制刷出，避免丢档 */
+   一笔可观的主线程开销（实测 40k 放置 ~300ms）。策略：距上次 save 超过
+   2s（用户停手）才真正写；连续编辑期间每次只顺延 3s，自首次待写起 30s
+   硬上限——保证编辑动作本身永不被落盘卡住，崩溃丢档窗口也不超过 30s。
+   Ctrl+S / 页面隐藏/关闭前强制刷出 */
 const PERSIST_DELAY = 12000;
+const PERSIST_ACTIVE_DELAY = 3000;
+const PERSIST_MAX_DELAY = 30000;
 let persistTimer = 0;
+let persistFirstAt = 0;
+let lastSaveAt = 0;
+/* ---- 按作品缓存序列化 ----
+   落盘要写整棵作品树：多作品时绝大部分作品没变，全量 stringify 是纯浪费
+   （用户实测单次 300-500ms，且 30s 硬上限会在连续编辑中途触发）。
+   按 work 缓存 JSON：save() 只把活动作品标脏，落盘只序列化脏作品，
+   其余直接拼缓存串。跨作品变更（删自定义符号/导入/增删作品）全部失效 */
+const workJsonCache = new WeakMap(); // work(原始对象) → { json }
+const workDirtySet = new WeakSet();  // 自上次落盘后变过的作品
+let allWorksDirty = true;
+function invalidatePersist() { allWorksDirty = true; }
+function buildPersistJson() {
+  const parts = [];
+  for (const w of toRaw(state.works)) {
+    let c = workJsonCache.get(w);
+    if (!c || allWorksDirty || workDirtySet.has(w)) {
+      c = { json: JSON.stringify(w) };
+      workJsonCache.set(w, c);
+      workDirtySet.delete(w);
+    }
+    parts.push(c.json);
+  }
+  allWorksDirty = false;
+  return '{"version":2,"works":[' + parts.join(',') + ']' +
+    ',"activeWorkId":' + JSON.stringify(state.activeWorkId) +
+    ',"activeChartId":' + JSON.stringify(state.activeChartId) +
+    ',"customSymbols":' + JSON.stringify(toRaw(state.customSymbols)) +
+    ',"hiddenSymbols":' + JSON.stringify(toRaw(state.hiddenSymbols)) +
+    ',"favorites":' + JSON.stringify(toRaw(state.favorites)) +
+    ',"activeCats":' + JSON.stringify(toRaw(state.activeCats)) +
+    ',"zoom":' + JSON.stringify(state.zoom) +
+    ',"tool":' + JSON.stringify(state.tool) +
+    ',"highlight":' + JSON.stringify(state.highlight) +
+    ',"theme":' + JSON.stringify(state.theme) +
+    ',"wsMap":' + JSON.stringify(toRaw(state.wsMap)) +
+    '}';
+}
+function forcePersist() {
+  if (persistTimer) { clearTimeout(persistTimer); persistTimer = 0; }
+  try { localStorage.setItem(LS_KEY, buildPersistJson()); } catch (e) {}
+}
 function persistNow() {
   if (!persistTimer) return;
   persistTimer = 0;
-  try { localStorage.setItem(LS_KEY, JSON.stringify(persistObject())); } catch (e) {}
+  if (Date.now() - lastSaveAt < 2000 && Date.now() - persistFirstAt < PERSIST_MAX_DELAY) {
+    persistTimer = setTimeout(persistNow, PERSIST_ACTIVE_DELAY); // 还在连续编辑，顺延
+    return;
+  }
+  try { localStorage.setItem(LS_KEY, buildPersistJson()); } catch (e) {}
 }
-/* 自测/关键路径用：立即落盘（平时走 400ms 防抖） */
-export function flushPersist() { persistNow(); }
+/* 自测/关键路径用：立即落盘 */
+export function flushPersist() { forcePersist(); }
 function schedulePersist() {
-  if (!persistTimer) persistTimer = setTimeout(persistNow, PERSIST_DELAY);
+  lastSaveAt = Date.now();
+  if (!persistTimer) {
+    persistFirstAt = Date.now();
+    persistTimer = setTimeout(persistNow, PERSIST_DELAY);
+  }
 }
 if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', persistNow);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(); });
+  window.addEventListener('beforeunload', forcePersist);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) forcePersist(); });
 }
 
-export function save() {
+export function save(definite = false) {
   try {
     syncActiveChart();
     const w0 = activeWork(); // 记录最近编辑时间，作品管理页展示用
-    if (w0) w0.updatedAt = Date.now();
-    /* 大图解下 stringify 是主要开销：图面内容只序列化这一次，同时用于
-       撤销历史（去重 + 快照）与「最后更改时间」追踪 */
-    const s = makeSnap();
-    if (!sameChart(history[hIndex], s)) { // 图面真变了才刷新「最后更改」
+    if (w0) {
+      w0.updatedAt = Date.now();
+      workDirtySet.add(toRaw(w0)); // 按作品落盘缓存：只标脏活动作品
+    }
+    if (!lastRefs) { lastRefs = chartRefs(); lastFp = chartFpFast(); }
+    /* 变更检测：引用比较（O(字段数)）。曾在此处每次编辑对整个图解
+       JSON.stringify（快照方案）——400×400 下单格编辑/粘贴 500ms 卡顿的根因 */
+    const refs = chartRefs();
+    let changed = false;
+    for (const k in refs) if (refs[k] !== lastRefs[k]) { changed = true; break; }
+    /* 指纹只用于过滤「引用换了内容没变」的空转替换；definite=true 表示
+       调用方确定内容已变（高频编辑路径），跳过这道 O(全部放置) 的扫描 */
+    if (changed && !definite && lastFp !== null && chartFpFast() === lastFp) {
+      changed = false;       // 引用换了但内容没变（空转替换）：只对准基线
+      lastRefs = refs;
+    }
+    if (changed) {
+      if (canvasDirty === null) markCanvasAllDirty(); // 未标的路径兜底按全图
+      const e = {};
+      for (const k of ['placements', 'borders', 'annotations', 'colLabels',
+        'customSymbols', 'hiddenSymbols', 'cols', 'rows', 'rowStartSide']) {
+        if (refs[k] !== lastRefs[k]) e[k] = { from: lastRefs[k], to: refs[k] };
+      }
+      history = history.slice(0, hIndex + 1); // 编辑作废重做分支
+      history.push(e);
+      if (history.length > UNDO_MAX) history.shift();
+      hIndex = history.length - 1;
+      syncHistUI();
+      lastRefs = refs;
+      lastFp = definite ? null : chartFpFast(); // definite 时指纹留待下次需要再算
       const c = activeChart();
       if (c) c.updatedAt = Date.now();
       contentRev.n++;
     }
-    if (!sameSnap(history[hIndex], s) && !inUndoRedo) {
-      history = history.slice(0, hIndex + 1);
-      history.push(s);
-      if (history.length > UNDO_MAX) history.shift();
-      /* 字节预算：密集 400×400 单份快照 3-4MB，30 份 ≈ 120MB 字符串常驻，
-         必须按总字符数限流（≈48MB UTF-16）——超限从最旧开始淘汰 */
-      let total = 0;
-      for (const h of history) total += h.chartStr.length + h.cs.length;
-      while (history.length > 1 && total > SNAP_CHARS_MAX) {
-        total -= history[0].chartStr.length + history[0].cs.length;
-        history.shift();
-      }
-      hIndex = history.length - 1;
-      syncHistUI();
-    }
-    schedulePersist(); // 实际 localStorage 写入防抖合并
+    schedulePersist(); // 实际 localStorage 写入节流合并
   } catch (e) {}
 }
 
@@ -743,15 +862,17 @@ export async function saveChartJson() {
   await writeFileJson(JSON.stringify(serializeChart(), null, 2), defaultFileName());
 }
 
-/* 合并文件带来的自定义符号：按 id 去重，只补充本机缺少的 */
+/* 合并文件带来的自定义符号：按 id 去重，只补充本机缺少的（整体替换，不原地 push） */
 function mergeCustomSymbols(list) {
   if (!Array.isArray(list)) return;
+  const add = [];
   for (const c of list) {
     if (!c || typeof c.id !== 'string' || !Array.isArray(c.shapes)) continue;
-    if (!state.customSymbols.some(x => x.id === c.id)) {
-      state.customSymbols.push({ ...c, shapes: c.shapes.map(sh => ({ ...sh })) });
+    if (!state.customSymbols.some(x => x.id === c.id) && !add.some(x => x.id === c.id)) {
+      add.push({ ...c, shapes: c.shapes.map(sh => ({ ...sh })) });
     }
   }
+  if (add.length) state.customSymbols = state.customSymbols.concat(add);
 }
 
 /* 载入 JSON：v2 作品包 → 导入为新作品；v1 单图解 → 追加为当前作品的新图解。
@@ -759,6 +880,7 @@ function mergeCustomSymbols(list) {
 export function importJson(text) {
   const s = JSON.parse(text);
   if (!s || typeof s !== 'object') throw new Error('不是本工具导出的存档文件');
+  invalidatePersist(); // 导入会增作品并清理全部作品的失效符号引用
   if (s.version === 2 || Array.isArray(s.works) || s.work) {
     const worksIn = Array.isArray(s.works) ? s.works : (s.work ? [s.work] : []);
     if (!worksIn.length) throw new Error('文件中没有作品数据');
@@ -927,34 +1049,51 @@ export function pasteAt(c, r) {
     for (let i = 0; i < d.w; i++)
       for (let j = 0; j < d.h; j++) cover.add((col + i) * 10000 + (row + j));
   }
+  let any = false;
   if (add.length) {
     const keep = [];
+    const bb = [c, r, c, r]; // 粘贴块足迹 ∪ 被覆盖旧符号足迹（画布脏区）
     for (const p of toRaw(state.placements)) {
       let clash = false;
       for (let i = 0; i < p.w && !clash; i++)
         for (let j = 0; j < p.h; j++)
           if (cover.has((p.col + i) * 10000 + (p.row + j))) { clash = true; break; }
-      if (!clash) keep.push(p);
+      if (clash) {
+        if (p.col < bb[0]) bb[0] = p.col;
+        if (p.row < bb[1]) bb[1] = p.row;
+        if (p.col + p.w - 1 > bb[2]) bb[2] = p.col + p.w - 1;
+        if (p.row + p.h - 1 > bb[3]) bb[3] = p.row + p.h - 1;
+      } else keep.push(p);
+    }
+    for (const q of add) {
+      if (q.col < bb[0]) bb[0] = q.col;
+      if (q.row < bb[1]) bb[1] = q.row;
+      if (q.col + q.w - 1 > bb[2]) bb[2] = q.col + q.w - 1;
+      if (q.row + q.h - 1 > bb[3]) bb[3] = q.row + q.h - 1;
     }
     state.placements = keep.concat(add);
+    markCanvasDirty(bb[0], bb[1], bb[2], bb[3]);
+    any = true;
+  } else {
+    markCanvasNone(); // 没有符号落位（越界或剪贴板只有边框/标注），符号位图无涉
   }
-  for (const rb of cb.borders) {
+  for (const rb of (cb.borders || [])) { // 旧剪贴板数据无 borders，兜底
     const col = c + rb.col, row = r + rb.row;
     if (!fits(col, row, rb.w, rb.h)) continue;
     const dup = state.borders.some(b => b.col === col && b.row === row && b.w === rb.w && b.h === rb.h);
-    if (!dup) state.borders.push({ col, row, w: rb.w, h: rb.h });
+    if (!dup) { state.borders = state.borders.concat([{ col, row, w: rb.w, h: rb.h }]); any = true; }
   }
   for (const ra of (cb.annotations || [])) { // 旧剪贴板数据无 annotations，兜底
     const col = c + ra.col, row = r + ra.row;
     if (!fits(col, row, ra.w, ra.h)) continue;
     const dup = state.annotations.some(a => a.col === col && a.row === row && a.w === ra.w && a.h === ra.h);
-    if (!dup) state.annotations.push({ col, row, w: ra.w, h: ra.h, text: ra.text });
+    if (!dup) { state.annotations = state.annotations.concat([{ col, row, w: ra.w, h: ra.h, text: ra.text }]); any = true; }
   }
-  save();
+  save(any); // any=true 时确定变更，跳过指纹扫描
 }
 
 /* ---------------- 区域标注 ---------------- */
-/* 给当前框选区域加文字标注；消去工具/右键点选区域内可删除 */
+/* 给当前框选区域加文字标注；消去工具点选区域内可删除 */
 export function addAnnotation(text) {
   const rect = clipSel.rect;
   if (!rect || guardLocked()) return false;
@@ -962,9 +1101,10 @@ export function addAnnotation(text) {
   if (!t) { flashInfo('未输入标注文字，已取消'); return false; }
   const col = Math.min(rect.c0, rect.c1), row = Math.min(rect.r0, rect.r1);
   const w = Math.abs(rect.c1 - rect.c0) + 1, h = Math.abs(rect.r1 - rect.r0) + 1;
-  state.annotations.push({ col, row, w, h, text: t });
+  state.annotations = state.annotations.concat([{ col, row, w, h, text: t }]);
+  markCanvasNone(); // 标注画在顶层 SVG，符号位图无涉
   save();
-  flashInfo(`已添加标注“${t}”（用消去工具/右键点区域内可删除）`);
+  flashInfo(`已添加标注“${t}”（用消去工具点区域内可删除）`);
   return true;
 }
 
@@ -983,12 +1123,14 @@ export function paletteIds() {
 }
 /* 内置符号只能从面板移除（隐藏），定义仍在；自定义符号走 deleteCustom 真删除 */
 export function hideSymbol(id) {
-  if (!state.hiddenSymbols.includes(id)) state.hiddenSymbols.push(id);
+  if (!state.hiddenSymbols.includes(id)) state.hiddenSymbols = state.hiddenSymbols.concat([id]);
   if (state.tool === id) selectTool('knit');
+  markCanvasNone(); // 隐藏只影响符号面板，画布位图不变
   save();
 }
 export function restoreSymbol(id) {
   state.hiddenSymbols = state.hiddenSymbols.filter(x => x !== id);
+  markCanvasNone();
   save();
 }
 export function hiddenSyms() {
@@ -997,13 +1139,22 @@ export function hiddenSyms() {
 export function setColLabel(c, text) {
   if (guardLocked()) return;
   const t = String(text).trim();
-  if (t === '') delete state.colLabels[String(c)];
-  else state.colLabels[String(c)] = t;
+  const k = String(c);
+  if (t === '') {
+    if (!(k in toRaw(state.colLabels))) return; // 原本就没有：no-op
+    const { [k]: _drop, ...rest } = toRaw(state.colLabels);
+    state.colLabels = rest;
+  } else {
+    if (toRaw(state.colLabels)[k] === t) return; // 同值：no-op
+    state.colLabels = { ...toRaw(state.colLabels), [k]: t };
+  }
+  markCanvasNone(); // 列号画在底层 SVG，符号位图无涉
   save();
 }
 export function clearColLabels() {
   if (guardLocked()) return;
   state.colLabels = {};
+  markCanvasNone(); // 列号画在底层 SVG，符号位图无涉
   save();
 }
 
@@ -1018,11 +1169,25 @@ export function selectTool(id) {
 const hit = (p, c, r) => c >= p.col && c < p.col + p.w && r >= p.row && r < p.row + p.h;
 const borderHit = (b, c, r) => c >= b.col && c < b.col + b.w && r >= b.row && r < b.row + b.h;
 /* 从原始数组里按谓词筛出保留项：大图解下对 reactive 代理数组做 filter 会
-   逐元素触发 Proxy get 陷阱（每次绘制 6ms 量级），走 raw 只做纯数值比较 */
-function keepRaw(arr, drop) {
-  const out = [];
-  for (const x of toRaw(arr)) if (!drop(x)) out.push(x);
-  return out;
+   逐元素触发 Proxy get 陷阱（每次绘制 6ms 量级），走 raw 只做纯数值比较。
+   没有命中时直接返回原数组（引用不变 → 变更检测零成本判定 no-op）。
+   传入 bbox（[c0,r0,c1,r1] 数组）时把被删项的足迹并进去（画布脏区用） */
+function keepRaw(arr, drop, bbox) {
+  const raw = toRaw(arr);
+  let out = null;
+  for (let i = 0; i < raw.length; i++) {
+    const x = raw[i];
+    if (drop(x)) {
+      if (!out) out = raw.slice(0, i);
+      if (bbox) {
+        bbox[0] = Math.min(bbox[0], x.col);
+        bbox[1] = Math.min(bbox[1], x.row);
+        bbox[2] = Math.max(bbox[2], x.col + (x.w || 1) - 1);
+        bbox[3] = Math.max(bbox[3], x.row + (x.h || 1) - 1);
+      }
+    } else if (out) out.push(x);
+  }
+  return out || raw;
 }
 
 export function fits(c, r, w, h) {
@@ -1034,21 +1199,57 @@ export function applyAt(c, r) {
   const tool = state.tool;
   if (tool === 'erase') {
     const pn = state.placements.length, bn = state.borders.length, an = state.annotations.length;
-    state.placements = keepRaw(state.placements, p => hit(p, c, r));
+    const bb = [c, r, c, r]; // 被删符号足迹并入脏区（可能比点击格大得多）
+    state.placements = keepRaw(state.placements, p => hit(p, c, r), bb);
     state.borders = keepRaw(state.borders, b => borderHit(b, c, r));
     state.annotations = keepRaw(state.annotations, a => hit(a, c, r));
     if (state.placements.length !== pn || state.borders.length !== bn ||
-        state.annotations.length !== an) save();
+        state.annotations.length !== an) {
+      markCanvasDirty(bb[0], bb[1], bb[2], bb[3]);
+      save(true);
+    }
     return;
   }
   if (tool === 'border') { commitBorder(c, r, c, r); return; }
   const d = getSym(tool);
   if (!d || !fits(c, r, d.w, d.h)) return;
-  // 覆盖：删掉与新区块相交的旧符号
-  state.placements = keepRaw(state.placements, p =>
-    c < p.col + p.w && p.col < c + d.w && r < p.row + p.h && p.row < r + d.h);
-  state.placements.push({ sym: tool, col: c, row: r, w: d.w, h: d.h });
-  save();
+  // 覆盖：删掉与新区块相交的旧符号。两个分支都必须产生新数组——
+  // 容器只许整体替换（撤销历史按引用追踪），绝不在原数组上 push。
+  // 先找首个相交项：不相交走 concat（少分配一份 N 槽数组，连点时 GC 更轻）
+  const clashPred = p => c < p.col + p.w && p.col < c + d.w && r < p.row + p.h && p.row < r + d.h;
+  const raw = toRaw(state.placements);
+  const add = { sym: tool, col: c, row: r, w: d.w, h: d.h };
+  let clashIdx = -1, clashes = 0, identical = false;
+  for (let i = 0; i < raw.length; i++) {
+    const p = raw[i];
+    if (clashPred(p)) {
+      clashes++;
+      if (clashIdx < 0) clashIdx = i;
+      // 与将放置的符号完全相同 → 连点同格是纯 no-op，直接短路
+      if (p.sym === tool && p.col === c && p.row === r &&
+          (p.w || 1) === d.w && (p.h || 1) === d.h) identical = true;
+    }
+  }
+  if (clashes === 1 && identical) return;
+  if (clashIdx < 0) {
+    state.placements = raw.concat([add]);
+  } else {
+    const bb = [c, r, c + d.w - 1, r + d.h - 1]; // 新符号足迹 ∪ 被删符号足迹
+    const kept = raw.slice(0, clashIdx);
+    for (let i = clashIdx; i < raw.length; i++) {
+      const p = raw[i];
+      if (clashPred(p)) {
+        if (p.col < bb[0]) bb[0] = p.col;
+        if (p.row < bb[1]) bb[1] = p.row;
+        if (p.col + p.w - 1 > bb[2]) bb[2] = p.col + p.w - 1;
+        if (p.row + p.h - 1 > bb[3]) bb[3] = p.row + p.h - 1;
+      } else kept.push(p);
+    }
+    state.placements = kept.concat([add]);
+    markCanvasDirty(bb[0], bb[1], bb[2], bb[3]);
+  }
+  if (clashIdx < 0) markCanvasDirty(c, r, c + d.w - 1, r + d.h - 1);
+  save(true); // 落格必然改变内容，跳过指纹扫描
 }
 
 export function commitBorder(c0, r0, c1, r1) {
@@ -1057,41 +1258,58 @@ export function commitBorder(c0, r0, c1, r1) {
   const w = Math.abs(c1 - c0) + 1, h = Math.abs(r1 - r0) + 1;
   if (!fits(col, row, w, h)) return;
   const dup = state.borders.some(b => b.col === col && b.row === row && b.w === w && b.h === h);
-  if (!dup) state.borders.push({ col, row, w, h });
+  if (!dup) state.borders = state.borders.concat([{ col, row, w, h }]);
+  markCanvasNone(); // 边框画在顶层 SVG，符号位图无涉
   save();
 }
 
 export function eraseAt(c, r) {
   if (guardLocked()) return;
-  state.placements = keepRaw(state.placements, p => hit(p, c, r));
+  const bb = [c, r, c, r];
+  const pn = state.placements.length;
+  state.placements = keepRaw(state.placements, p => hit(p, c, r), bb);
   state.borders = keepRaw(state.borders, b => borderHit(b, c, r));
   state.annotations = keepRaw(state.annotations, a => hit(a, c, r));
+  if (state.placements.length !== pn) markCanvasDirty(bb[0], bb[1], bb[2], bb[3]);
+  markCanvasNone(); // 边框/标注变化不影响符号位图
   save();
 }
 
 /* ---------------- 网格 / 清空 ---------------- */
 export function resizeGrid(cols, rows) {
   if (guardLocked()) return;
+  if (cols === state.cols && rows === state.rows) return; // 同尺寸：空转防御
   state.cols = cols; state.rows = rows;
   state.placements = keepRaw(state.placements, p => !(p.col + p.w <= cols && p.row + p.h - 1 <= rows));
   state.borders = keepRaw(state.borders, b => !(b.col + b.w <= cols && b.row + b.h - 1 <= rows));
   state.annotations = keepRaw(state.annotations, a => !(a.col + a.w <= cols && a.row + a.h - 1 <= rows));
-  for (const k of Object.keys(state.colLabels)) if (+k >= cols) delete state.colLabels[k];
+  /* 列号对象重建（不许原地 delete key——撤销历史按引用追踪容器） */
+  const cl = toRaw(state.colLabels);
+  const ncl = {};
+  for (const k of Object.keys(cl)) if (+k < cols) ncl[k] = cl[k];
+  state.colLabels = ncl;
   if (state.highlight && state.highlight > rows) state.highlight = null;
   if (state.doneRows > rows) state.doneRows = rows;
+  markCanvasAllDirty(); // 尺寸变化牵动全部瓦片布局
   save();
 }
 export function clearAll() {
   if (guardLocked()) return;
+  if (!state.placements.length && !state.borders.length && !state.annotations.length &&
+      !state.doneRows && !state.highlight) return; // 已是空：空转防御
   state.placements = []; state.borders = []; state.annotations = []; state.highlight = null;
   state.doneRows = 0;
-  save();
+  markCanvasAllDirty();
+  save(true);
 }
 export function setZoom(v) { state.zoom = v; save(); }
 export function setRowStartSide(v) {
   if (guardLocked()) return;
-  state.rowStartSide = v === 'left' ? 'left' : 'right';
-  save();
+  const nv = v === 'left' ? 'left' : 'right';
+  if (state.rowStartSide === nv) return; // 同值：空转防御
+  state.rowStartSide = nv;
+  markCanvasNone(); // 行号画在底层 SVG，符号位图无涉
+  save(true);
 }
 export function toggleHighlight(r) {
   state.highlight = state.highlight === r ? null : r;
@@ -1139,12 +1357,14 @@ function guardLocked() {
 export function upsertCustom(data) {
   if (data.id) {
     const i = state.customSymbols.findIndex(s => s.id === data.id);
-    if (i >= 0) state.customSymbols[i] = data;
+    // 整体替换（不许原地改下标——撤销历史按引用追踪容器）
+    if (i >= 0) state.customSymbols = state.customSymbols.map((s, j) => j === i ? data : s);
   } else {
     data.id = 'custom_' + Date.now().toString(36);
-    state.customSymbols.push(data);
+    state.customSymbols = state.customSymbols.concat([data]);
   }
   save();
+  markCanvasAllDirty(); // 符号定义变了，所有含它的瓦片都要重画
   return data.id;
 }
 export function deleteCustom(id) {
@@ -1156,6 +1376,8 @@ export function deleteCustom(id) {
   }
   projectActive(); // 活动图解的 placements 数组被替换，重新对准投影
   if (state.tool === id) selectTool('knit');
+  markCanvasAllDirty();
+  invalidatePersist(); // 跨作品清理，全部落盘缓存失效
   save();
 }
 
@@ -1183,5 +1405,6 @@ export function resetStateForTest() {
   ensureSkeleton();
   applyTheme();
   clipSel.rect = null; clipBoard.data = null; clipBoard.info = '';
+  invalidatePersist();
   resetHistory();
 }

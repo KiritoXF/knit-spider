@@ -32,10 +32,10 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 - Built-in JIS standard knitting symbols, plus project-original symbols (e.g. 3×3 cable cross)
 - Category filter (multi-select toggle), search by name / id
 - "Favorites" pseudo-category (hover star at the top-left of a symbol)
-- The home page "🧩 Symbol Library" manages symbols in one place: search + All / Built-in / Custom filter, hover a symbol and click the × at its top-right to remove —
-  - **Built-in symbols**: only hidden from the chart-page palette; the definition stays, already-placed symbols are unaffected, and they can be restored anytime from the "Removed" section at the bottom of the library
+- The home page "🧩 Symbol Library" manages symbols in one place: a symbol dictionary on the left (search + All / Built-in / Custom / Configured / Unconfigured / Removed filters) and a per-symbol detail panel on the right —
+  - **Built-in symbols**: only hidden from the chart-page palette; the definition stays, already-placed symbols are unaffected, and they can be restored anytime under the "Removed" filter
   - **Custom symbols**: permanently deleted (with confirmation), and all references to them are cleaned up across every project and chart
-- The library can also start a new symbol directly via "＋ New custom symbol" (see below)
+- The library can also start a new symbol directly via "＋ New" (see below)
 
 ### Editing Tools
 - Marquee select: drag out a rectangular region, combine with copy / delete / annotate / paste
@@ -61,7 +61,7 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 
 ![Stitch tutorial images](docs/images/stitch-tutorials.png)
 
-- Home page "🧵 Tutorials" configures, per symbol, a how-to image (upload / replace / delete) and/or a short text note (auto-saved on blur, cleared when emptied); the two are independent — either alone or both together
+- In the Symbol Library modal, select a symbol then use "① Stitch tutorial" on the right to configure a how-to image (upload / replace / delete) and/or a short text note (auto-saved on blur, cleared when emptied); the two are independent — either alone or both together
 - Tutorial images and text notes live in the local IndexedDB — never uploaded, never online; built-in tutorial assets can be placed in `public/tutorials/` (currently empty)
 - Tutorial images and text notes are bundled into the "Archive project" zip (notes as `tutorials/<symbol-id>.txt`) and automatically restored to the local tutorial library when imported on another machine
 
@@ -71,7 +71,7 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 
 - Primitives: line, rectangle, ellipse, path, cubic Bézier curve (drag the start-end chord, then click twice to set the two curve points)
 - Canvas size adapts to the symbol's width/height; size changes take effect as you type
-- Two entry points: home page "🧩 Symbol Library › ＋ New custom symbol", or the chart-page palette "＋ Custom"
+- Two entry points: home page "🧩 Symbol Library › ＋ New", or the chart-page palette "＋ Custom"
 
 ### Save & Export
 - Archive project: packs the whole project as a zip (`ProjectName.zip`) containing `work.json` (v2 format, all charts) and `tutorials/` (local tutorial images and text notes as-is)
@@ -106,7 +106,7 @@ npm run build       # regenerate symbol data first, then emit the single-file di
 4. Drag with the border tool to draw a pattern frame; use the eraser to remove mistakes
 5. Top bar "File": load zip / JSON, export chart JSON, export SVG, archive project zip
 6. Top bar "Written" shows the row-by-row instructions for the current chart; the left column can copy or download as txt, and hovering a stitch name shows its tutorial (image or text note)
-7. Home page "🧵 Tutorials" attaches images / text notes to stitches; home page "🧩 Symbol Library" removes / deletes symbols and creates new custom ones
+7. Home page "🧩 Symbol Library" attaches tutorial images / text notes, sets wrong-side mappings, and removes / deletes symbols or creates new custom ones
 8. The "?" at the top-right opens the help guide at any time
 
 ### Keyboard Shortcuts
@@ -172,8 +172,7 @@ npm run build       # regenerate symbol data first, then emit the single-file di
       ├─ ZoomControl.vue      # Zoom control
       ├─ PalettePanel.vue     # Symbol palette (search / categories / favorites)
       ├─ SymbolArt.vue        # Single-symbol renderer
-      ├─ SymbolManagerModal.vue # Symbol library modal (remove / delete / restore / new custom symbol)
-      ├─ TutorialModal.vue    # Tutorial manager (per-symbol image / text note)
+      ├─ SymbolCenterModal.vue # Symbol library modal (symbol dictionary + tutorial image / text note + wrong-side mapping + remove / restore)
       ├─ TextChartModal.vue   # Written-instructions modal (symbol reference + body + tutorial popover)
       ├─ HelpModal.vue        # Help guide
       ├─ AppDialog.vue        # In-app confirm / prompt dialog

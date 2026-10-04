@@ -5,11 +5,12 @@
    （无全局像素帽 → 任何尺寸不糊），只保活可视区附近 ±1 圈，LRU 逐出。
    交互不变：瓦片是普通绝对定位元素随宿主 div 被原生滚动，不劫持滚动
    （勿重蹈 57afe4b sticky 视口的覆辙）。
-   脏区策略（方案 A）：contentRev 变化 → O(N) 重建瓦片桶 → 只重渲可见块；
-   滚动/尺寸变化 → reconcile 增量建块。若将来实测编辑超标，后备方案 B：
-   store 变更函数返回受影响 bbox，只重渲相交块（本文件留有分界注释）。 */
+   脏区策略（方案 B，2026-10-04 落地）：store 变更函数标出受影响格域
+   （takeCanvasDirty），contentRev 变化时只重建相交瓦片的桶、只重渲相交块；
+   滚动/尺寸变化 → reconcile 增量建块。'none'（边框/标注等 SVG 层变化）/
+   未标路径按全图兜底。 */
 import { toRaw } from 'vue';
-import { state, contentRev } from './store.js';
+import { state, contentRev, takeCanvasDirty } from './store.js';
 import { CELL } from './util.js';
 
 export const TILE = 16;              // 每瓦片格数（见方）；zoom2.5×dpr2 时单块 backing ≈ 5M 像素
@@ -17,7 +18,7 @@ const MAX_TILES = 96;                // LRU 块数上限
 const MAX_BYTES = 160 * 1024 * 1024; // LRU 字节上限（dpr 变化块变大，按字节比按块数稳）
 const TILE_BACKING = 4096;           // 单块 backing 边长上限（16 格 × 2.5 zoom × 2 dpr = 2240，远够）
 
-export function createTileLayer({ host, scrollEl, symImage, getSym }) {
+export function createTileLayer({ host, scrollEl, symImage, symBitmap, getSym }) {
   const cache = new Map();   // 'tc,tr' → {cv, tc, tr, use, gen, rev, rendered}
   const pool = [];           // 逐出回收的 canvas，复用避免 GC 抖动
   let useCounter = 0;
@@ -39,14 +40,15 @@ export function createTileLayer({ host, scrollEl, symImage, getSym }) {
   const layoutSig = () =>
     state.cols + 'x' + state.rows + '@' + state.zoom + ':' + (window.devicePixelRatio || 1);
 
-  /* ---- 瓦片桶：placement 按足迹落入所有触及块（跨块符号每块各画裁剪段） ---- */
-  function ensureBuckets() {
-    if (bucketRev === contentRev.n) return;
-    bucketRev = contentRev.n;
+  /* ---- 瓦片桶：placement 按足迹落入所有触及块（跨块符号每块各画裁剪段） ----
+     增量协议：store 用 markCanvasDirty 标格域矩形；本层只重建与矩形相交的
+     瓦片桶并标记这些缓存块待重渲（t.dirtyRev），其余块零成本跳过 */
+  function rebuildBucketsFull() {
     buckets = new Map();
+    const rows = state.rows;
     for (const p of toRaw(state.placements)) {
       const w = p.w || 1, h = p.h || 1;
-      const y0 = state.rows - p.row - h + 1;      // 顶边所在世界 y（格）
+      const y0 = rows - p.row - h + 1;      // 顶边所在世界 y（格）
       const tc0 = Math.floor(p.col / TILE), tc1 = Math.floor((p.col + w - 1) / TILE);
       const tr0 = Math.floor(y0 / TILE), tr1 = Math.floor((y0 + h - 1) / TILE);
       for (let tr = tr0; tr <= tr1; tr++) for (let tc = tc0; tc <= tc1; tc++) {
@@ -57,13 +59,58 @@ export function createTileLayer({ host, scrollEl, symImage, getSym }) {
       }
     }
   }
+  function rebuildBucketsRect(rect, rev) {
+    const rows = state.rows;
+    const tcA = Math.max(0, Math.floor(rect.c0 / TILE)), tcB = Math.floor(rect.c1 / TILE);
+    const yTop = rows - rect.r1;                        // 矩形顶边的世界 y（格）
+    const yBot = rows - rect.r0;                        // 矩形底边的世界 y（格）
+    const trA = Math.max(0, Math.floor(yTop / TILE)), trB = Math.floor(yBot / TILE);
+    for (let tr = trA; tr <= trB; tr++) for (let tc = tcA; tc <= tcB; tc++) {
+      buckets.delete(key(tc, tr));
+      const t = cache.get(key(tc, tr));
+      if (t) t.dirtyRev = rev; // 缓存中的相交块标记待重渲
+    }
+    /* 单趟扫描：凡是足迹触及矩形范围内瓦片的符号都回填（包括同瓦片但
+       矩形格之外的符号——桶是按瓦片清的，必须按瓦片范围回填，否则
+       相邻符号从渲染中消失）。变更函数保证矩形含被删/新增符号的完整足迹，
+       矩形外瓦片的旧桶内容仍有效 */
+    for (const p of toRaw(state.placements)) {
+      const w = p.w || 1, h = p.h || 1;
+      const ptc0 = Math.floor(p.col / TILE), ptc1 = Math.floor((p.col + w - 1) / TILE);
+      if (ptc1 < tcA || ptc0 > tcB) continue;
+      const y0 = rows - p.row - h + 1;
+      const ptr0 = Math.floor(y0 / TILE), ptr1 = Math.floor((y0 + h - 1) / TILE);
+      if (ptr1 < trA || ptr0 > trB) continue;
+      for (let tr = Math.max(ptr0, trA); tr <= Math.min(ptr1, trB); tr++)
+        for (let tc = Math.max(ptc0, tcA); tc <= Math.min(ptc1, tcB); tc++) {
+          const k = key(tc, tr);
+          let b = buckets.get(k);
+          if (!b) { b = []; buckets.set(k, b); }
+          b.push(p);
+        }
+    }
+  }
+  function ensureBuckets() {
+    if (bucketRev === contentRev.n) return;
+    const rev = contentRev.n;
+    const dr = takeCanvasDirty();
+    if (dr === 'none') {
+      /* 图面变了但符号位图无涉（边框/标注/列号等 SVG 层），桶与瓦片全保 */
+    } else if (!dr || dr === 'all') {
+      rebuildBucketsFull();
+      for (const t of cache.values()) t.dirtyRev = rev;
+    } else {
+      rebuildBucketsRect(dr, rev);
+    }
+    bucketRev = rev;
+  }
 
   function ensure(tc, tr) {
     const k = key(tc, tr);
     let t = cache.get(k);
     if (t) return t;
     const cv = pool.pop() || document.createElement('canvas');
-    t = { cv, tc, tr, use: 0, gen: -1, rev: -1, rendered: false };
+    t = { cv, tc, tr, use: 0, gen: -1, renderedRev: -1, dirtyRev: 0, rendered: false };
     cache.set(k, t);
     host.appendChild(cv);
     return t;
@@ -111,25 +158,28 @@ export function createTileLayer({ host, scrollEl, symImage, getSym }) {
     if (b) for (const p of b) {
       const sym = getSym(p.sym);
       if (!sym) continue;
-      const img = symImage(sym);
-      if (!img.complete || !img.naturalWidth) continue; // 解码中，onload 后整体重渲
-      /* 与瓦片求交后按源矩形裁剪绘制：目标坐标恒在瓦片内（≥0）。
-         直接整图 drawImage 会出现负目标坐标——Chromium 对 SVG 图像 +
-         负目标偏移有裁剪错位 bug（跨块符号右半段会丢），勿回退 */
       const sy0w = rows - p.row - p.h + 1;               // 符号顶边（世界 y，格）
       const dx0 = p.col * p1, dy0 = sy0w * p1;           // 符号世界 css 矩形
       const dw = p.w * p1, dh = p.h * p1;
+      /* 预光栅化位图：SVG image 每次 drawImage 都要按目标尺寸重新光栅化
+         （矢量源，慢机器上每帧数百个 drawImage 即数百毫秒），改为每
+         (符号,尺寸) 光栅化一次到离屏 canvas，这里只做 canvas→canvas 拷贝 */
+      const bmp = symBitmap && symBitmap(sym, dw * scale, dh * scale);
+      if (!bmp) continue; // 解码中，onload 后整体重渲
+      /* 与瓦片求交后按源矩形裁剪绘制：目标坐标恒在瓦片内（≥0）。
+         直接整图 drawImage 会出现负目标坐标——Chromium 对 SVG 图像 +
+         负目标偏移有裁剪错位 bug（跨块符号右半段会丢），勿回退 */
       const vx0 = Math.max(dx0, t.tc * ts), vx1 = Math.min(dx0 + dw, (t.tc + 1) * ts);
       const vy0 = Math.max(dy0, t.tr * ts), vy1 = Math.min(dy0 + dh, (t.tr + 1) * ts);
       if (vx1 <= vx0 || vy1 <= vy0) continue;
-      const iw = img.naturalWidth, ih = img.naturalHeight;
+      const iw = bmp.width, ih = bmp.height;
       const u0 = (vx0 - dx0) / dw * iw, v0 = (vy0 - dy0) / dh * ih;
       const uw = (vx1 - vx0) / dw * iw, vh = (vy1 - vy0) / dh * ih;
-      ctx.drawImage(img, u0, v0, uw, vh, vx0, vy0, vx1 - vx0, vy1 - vy0);
+      ctx.drawImage(bmp, u0, v0, uw, vh, vx0, vy0, vx1 - vx0, vy1 - vy0);
       t.dbgDraw++;
     }
     t.gen = gen;
-    t.rev = bucketRev;
+    t.renderedRev = bucketRev; // 本块内容与该版本一致（增量脏区用 dirtyRev 比较）
     t.rendered = true;
   }
 
@@ -149,7 +199,7 @@ export function createTileLayer({ host, scrollEl, symImage, getSym }) {
   }
 
   function allVisibleRendered() {
-    return lastVis.every(t => t.rendered && t.gen === gen && t.rev === bucketRev);
+    return lastVis.every(t => t.rendered && t.gen === gen && t.renderedRev >= t.dirtyRev);
   }
   function flushWaitersIfDone() {
     if (!allVisibleRendered() || raf) return;
@@ -182,7 +232,7 @@ export function createTileLayer({ host, scrollEl, symImage, getSym }) {
     }
     lastVis = vis;
     for (const t of vis)
-      if (t.gen !== gen || t.rev !== bucketRev || !t.rendered) renderTile(t);
+      if (t.gen !== gen || !t.rendered || t.renderedRev < t.dirtyRev) renderTile(t);
     evict(bytes, new Set(vis));
     flushWaitersIfDone();
   }
@@ -259,7 +309,8 @@ export function createTileLayer({ host, scrollEl, symImage, getSym }) {
         buckets: [...buckets.entries()].map(([k, b]) => k + ':' + b.length),
         tiles: [...cache.values()].map(t => ({
           tc: t.tc, tr: t.tr, w: t.cv.width, h: t.cv.height,
-          rendered: t.rendered, tgen: t.gen, trev: t.rev, inDom: t.cv.isConnected,
+          rendered: t.rendered, tgen: t.gen, renderedRev: t.renderedRev, dirtyRev: t.dirtyRev,
+          inDom: t.cv.isConnected,
           draw: t.dbgDraw, skip: t.dbgSkip,
         })),
         sc: scrollEl ? { sw: scrollEl.scrollWidth, sh: scrollEl.scrollHeight,
