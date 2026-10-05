@@ -88,7 +88,14 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 - Lyrics floating widget (always-on-top picture-in-picture): shows the current row and its neighbors over any app; a separate transparent holder window serves the stitch-tutorial popover next to it; the widget remembers its position and size
 - Single-instance lock: launching the app a second time simply restores and focuses the running window
 - Auto-update: shortly after startup the app checks GitHub Releases (`latest.json`, minisign-verified); a new version can be downloaded and installed in-app (passive mode) and the app relaunches automatically — declining opens the Releases page for a manual download
-- Installers (NSIS) and update manifests are attached to [GitHub Releases](https://github.com/KiritoXF/knit-spider/releases/latest)
+- Installers and update manifests are attached to [GitHub Releases](https://github.com/KiritoXF/knit-spider/releases/latest)
+
+### Desktop App Usage
+
+- **Download & run**: grab `SpiderKnit_<version>_x64.exe` from [Releases](https://github.com/KiritoXF/knit-spider/releases/latest) — a portable, installer-free exe. Double-click to run, no installation or admin rights needed; put it in any folder you like
+- **Tray behavior**: closing the window minimizes to the tray instead of quitting — restore via left-click on the tray icon or the tray menu; fully quit via tray menu "Quit"
+- **Floating widget**: toggle from the tray menu or in-app; it stays on top of other apps so you can follow the current row while knitting from a pattern on screen; drag to reposition, the position is remembered
+- **Updates**: the app checks GitHub Releases shortly after startup and offers an in-app update; or just download the latest exe from the Releases page and replace the old one
 
 ## Usage
 
@@ -107,14 +114,25 @@ npm run build       # regenerate symbol data first, then emit the single-file di
 
 `dist/knitting-chart.html` works by double-clicking (file://) and can be copied to any machine for offline use.
 
-Desktop (Windows) build:
+### Desktop (Windows) Build
+
+Development (hot-reload desktop window):
 
 ```bash
-npm run tauri:build   # emits the NSIS installer and update signature (requires the Rust toolchain)
+npm run tauri:dev
 ```
 
-Before building, set the update signing key environment variable (the key is not committed, see `src-tauri/keys/`):
+Packaging:
+
+```bash
+npm run tauri:build         # emits the NSIS installer + update signature (requires the Rust toolchain)
+npx tauri build --no-bundle # emits a portable bare exe only: src-tauri/target/release/knitchart.exe
+```
+
+Before building an installer, set the update signing key environment variable (the key is not committed, see `src-tauri/keys/`):
 `$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content src-tauri/keys/knit-spider.key -Raw`
+
+CI packaging: pushing a `v*` tag triggers [.github/workflows/release.yml](.github/workflows/release.yml), which builds the portable exe on `windows-latest` (`npx tauri build --no-bundle`), renames it `SpiderKnit_<version>_x64.exe`, and attaches it to the GitHub Release — no NSIS, no signing, a green portable build for users to run directly.
 
 ### Basic Workflow
 
@@ -166,6 +184,7 @@ Before building, set the update signing key environment variable (the key is not
 │  └─ generate-symbols.mjs    # Extracts paths from external JIS symbol library SVGs, generates symbol data
 ├─ local-symbols/             # Project-original symbol SVGs (missing from the source library, e.g. 3×3 cable cross)
 ├─ public/tutorials/          # Built-in tutorial images (optional, named by symbol id)
+├─ src-tauri/                 # Desktop app (Tauri 2): tray / floating widget / single-instance lock / auto-update
 └─ src/
    ├─ main.js                 # Bootstrap
    ├─ App.vue                 # View switching (home / editor) and global modal mounting
@@ -176,6 +195,7 @@ Before building, set the update signing key environment variable (the key is not
    ├─ symbols.generated.js    # Generated file — do not edit by hand
    ├─ exportSvg.js            # SVG export
    ├─ textChart.js            # Pure chart→text conversion module (no Vue deps; callable from Node)
+   ├─ updater.js              # Desktop auto-update (check Releases → in-app download, install, relaunch)
    ├─ tutorials.js            # Tutorial lookup (image / text; local upload first → built-in static)
    ├─ tutorialStore.js        # Tutorial image & text IndexedDB storage (incl. zip import/export)
    ├─ selftest.js             # In-page self-test script

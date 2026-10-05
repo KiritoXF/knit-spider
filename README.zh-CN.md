@@ -93,7 +93,14 @@
 - 歌词浮窗（置顶画中画）：切到别的软件也能看当前行、点织完这行；织法教程 popover 由独立透明承载窗贴边显示；浮窗位置尺寸记忆在本机
 - 多实例互斥：重复启动直接唤起并聚焦已运行的主窗口，不开第二个
 - 自动更新：启动约 15 秒后检查 GitHub Releases（`latest.json`，minisign 签名校验），发现新版本弹应用内确认框，确认后应用内下载安装（passive 模式）并自动重启；拒绝或失败时引导到 [Releases 页](https://github.com/KiritoXF/knit-spider/releases/latest)手动下载
-- 安装包（NSIS）与更新清单随 [GitHub Releases](https://github.com/KiritoXF/knit-spider/releases/latest) 发布
+- 安装包与更新清单随 [GitHub Releases](https://github.com/KiritoXF/knit-spider/releases/latest) 发布
+
+### 桌面端使用方法
+
+- **下载即用**：从 [Releases](https://github.com/KiritoXF/knit-spider/releases/latest) 下载 `SpiderKnit_<版本>_x64.exe`——免安装绿色版，双击即可运行，无需安装、无需管理员权限，放到任意文件夹都行
+- **托盘行为**：点窗口 × 是最小化到托盘而非退出——左键点托盘图标或托盘菜单均可唤回；彻底退出走托盘菜单「退出」
+- **浮窗**：托盘菜单或应用内开关；浮窗置顶于其他软件之上，边看屏幕上的图解边对着织当前行；拖动可挪位置，位置记忆在本机
+- **更新**：应用启动后会自动检查 GitHub Releases 并在应用内提示更新；也可以直接到 Releases 页下载最新 exe 替换旧文件
 
 ## 使用说明
 
@@ -112,14 +119,18 @@ npm run build       # 先重新生成符号数据，再产出 dist/knitting-char
 
 `dist/knitting-chart.html` 双击（file://）即可使用，可拷贝到任意机器离线运行。
 
-桌面端（Windows）构建：
+桌面端（Windows）开发与打包：
 
 ```bash
-npm run tauri:build   # 产出 NSIS 安装包与更新签名文件（需 Rust 工具链）
+npm run tauri:dev           # 桌面端开发调试（热重载窗口）
+npm run tauri:build         # 产出 NSIS 安装包 + 更新签名文件（需 Rust 工具链）
+npx tauri build --no-bundle # 仅产出免安装绿色版裸 exe：src-tauri/target/release/knitchart.exe
 ```
 
-构建前需设置更新签名私钥环境变量（密钥不入库，见 `src-tauri/keys/`）：
+打包安装包前需设置更新签名私钥环境变量（密钥不入库，见 `src-tauri/keys/`）：
 `$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content src-tauri/keys/knit-spider.key -Raw`
+
+CI 打包：推送 `v*` 标签会触发 [.github/workflows/release.yml](.github/workflows/release.yml)，在 `windows-latest` 上构建绿色版 exe（`npx tauri build --no-bundle`），重命名为 `SpiderKnit_<版本>_x64.exe` 并挂到 GitHub Release——不打 NSIS、不签名，用户下载后直接运行。
 
 ### 基本操作
 
