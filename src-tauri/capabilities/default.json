@@ -21,7 +21,6 @@
     "core:window:allow-cursor-position",
     "core:window:allow-show",
     "core:window:allow-hide",
-    "shell:allow-open",
-    "updater:default"
+    "shell:allow-open"
   ]
 }

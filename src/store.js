@@ -7,6 +7,14 @@ import { chartToCode, codeToChart, hashCustomSym } from './chartCode.js';
 import * as textChart from './textChart.js';
 
 export const LS_KEY = 'knitChartProto1';
+/* 织进度专用小键：主窗口改进度时立即写这里（几十字节，微秒级），
+   浮窗据此秒级跟随。绝不为此全量刷 LS_KEY——那会把大图解的整树序列化
+   （几百毫秒）压进每次计数器输入，是「文字解里改进度很卡」的根源 */
+export const PROG_KEY = LS_KEY + '.prog';
+/* 进度变更时间戳：随 PROG_KEY 与整档落盘发出，接收方据此丢弃
+   比本端最近一次本地操作更旧的「回声」（快速连点时旧绝对值会把
+   新进度拉回去再逐条重放） */
+let progT = 0;
 
 export const state = reactive({
   /* ---- 作品 / 图解两级结构 ----
@@ -516,23 +524,76 @@ function buildPersistJson() {
     ',"highlight":' + JSON.stringify(state.highlight) +
     ',"theme":' + JSON.stringify(state.theme) +
     ',"wsMap":' + JSON.stringify(toRaw(state.wsMap)) +
+    ',"progT":' + progT +
     '}';
 }
+/* 只有主窗口允许写 LS_KEY：浮窗（?widget=1）与教程承载窗（?popdoc=1）也加载本模块，
+   它们的内存快照滞后于主窗口（主窗口落盘有节流），若允许其 forcePersist，
+   浮窗隐藏/关闭时会把旧档整树写回 LS_KEY，覆盖主窗口刚编辑的内容
+   （表现为文字解进度改了几秒后「闪一下」又弹回旧值）。浮窗进度走 widgetSync 的 PIP_KEY */
+const CAN_PERSIST = typeof location === 'undefined' ||
+  (location.search.indexOf('widget=1') < 0 && location.search.indexOf('popdoc=1') < 0);
+
+/* ---- 存档写权锁（防同源第二个实例覆盖存档）----
+   dev 模式下浏览器打开的 localhost:5173 与 Tauri 窗口同源、共享 localStorage，
+   标签页里跑着另一份完整应用（initSync('main')），它的自动落盘会把它的旧状态
+   整树写回 LS_KEY，浮窗跟着 load() 就会切到别的图解/旧进度（表现为浮窗标题
+   突变、行号跳回旧值）。用带心跳的持有锁保证同一时刻只有一个主窗口可写；
+   检锁失败/异常一律放行（宁可多写，不可因锁丢档）。浮窗/承载窗不参与锁 */
+const OWNER_KEY = LS_KEY + '.owner';
+const OWNER_TTL = 8000;   // 心跳超过此时长视为持有者已死，可接管
+let ownerId = Math.random().toString(36).slice(2);
+let ownerWarned = false;
+function ownerFreshOther() {
+  try {
+    const o = JSON.parse(localStorage.getItem(OWNER_KEY));
+    return (o && o.id !== ownerId && Date.now() - o.t < OWNER_TTL) ? o : null;
+  } catch (e) { return null; } // 锁数据坏了：放行
+}
+function ownerHeartbeat() {
+  try { localStorage.setItem(OWNER_KEY, JSON.stringify({ id: ownerId, t: Date.now() })); } catch (e) {}
+}
+function ownerRelease() { try { localStorage.removeItem(OWNER_KEY); } catch (e) {} }
+function ownerAcquire() { // 返回 true=获得写权
+  if (!ownerFreshOther()) { ownerHeartbeat(); return true; }
+  if (!ownerWarned) {
+    ownerWarned = true;
+    try {
+      toast('检测到另一个窗口正在使用同一存档（如浏览器里打开的 localhost 页面），'
+        + '为避免互相覆盖，本窗口暂停自动保存；请关闭多余窗口', 'warn');
+    } catch (e) {}
+  }
+  return false;
+}
+if (CAN_PERSIST && typeof window !== 'undefined') {
+  /* 只有「锁空闲/过期/属于自己」时才续期：非持有者若也无脑续期，
+     会把持有者的锁覆盖成自己的，两边互抢导致双双停写 */
+  setInterval(() => { if (!ownerFreshOther()) ownerHeartbeat(); }, 3000);
+}
 function forcePersist() {
+  if (!CAN_PERSIST) return;
   if (persistTimer) { clearTimeout(persistTimer); persistTimer = 0; }
+  if (!ownerAcquire()) return;
   try { localStorage.setItem(LS_KEY, buildPersistJson()); } catch (e) {}
 }
 function persistNow() {
   if (!persistTimer) return;
   persistTimer = 0;
+  if (!CAN_PERSIST) return;
   if (Date.now() - lastSaveAt < 2000 && Date.now() - persistFirstAt < PERSIST_MAX_DELAY) {
     persistTimer = setTimeout(persistNow, PERSIST_ACTIVE_DELAY); // 还在连续编辑，顺延
     return;
   }
+  if (!ownerAcquire()) return;
   try { localStorage.setItem(LS_KEY, buildPersistJson()); } catch (e) {}
 }
-/* 自测/关键路径用：立即落盘 */
-export function flushPersist() { forcePersist(); }
+/* 自测/关键路径用：立即落盘。显式调用不受 CAN_PERSIST 限制
+   （守卫只拦浮窗/承载窗的自动落盘：beforeunload / visibilitychange / 节流写） */
+export function flushPersist() {
+  if (persistTimer) { clearTimeout(persistTimer); persistTimer = 0; }
+  if (CAN_PERSIST && !ownerAcquire()) return; // 有别的活实例持锁时同样让位
+  try { localStorage.setItem(LS_KEY, buildPersistJson()); } catch (e) {}
+}
 function schedulePersist() {
   lastSaveAt = Date.now();
   if (!persistTimer) {
@@ -541,7 +602,10 @@ function schedulePersist() {
   }
 }
 if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', forcePersist);
+  window.addEventListener('beforeunload', () => {
+    forcePersist();   // 最后一次落盘（本人持锁，必然放行）
+    ownerRelease();   // 随即释放锁：同窗口刷新/重启后新页面可立即接管
+  });
   document.addEventListener('visibilitychange', () => { if (document.hidden) forcePersist(); });
 }
 
@@ -635,6 +699,17 @@ function pruneMissingSymbolsAll() {
 export function load() {
   try {
     const s = JSON.parse(localStorage.getItem(LS_KEY));
+    /* 必须先清空再重建：load 会被浮窗在每次 LS_KEY 存储事件里重复调用
+       （跨窗口同步），若不清空，works 会整体翻倍追加，而 activeWorkId 命中
+       排在前面的旧副本 → projectActive 把织进度/图面回滚成旧档（浮窗进度
+       弹回旧值、主窗口进度被旧基准的步进不断推高的根源） */
+    state.works = [];
+    /* usedIds 同样必须重播种：它惰性播种自 load 开始时的 state.works，
+       且跨调用持久。重复 load 时档内 id 全都“已被占用”→ pickId 把每个
+       作品/图解都换成新生成的 id → activeChartId/activeWorkId 必然匹配
+       失败 → 回退 charts[0]/works[0]（浮窗自己换图解/换作品的根源）。
+       load 是整树重建，档内 id 即全集，重新播种去重语义不变 */
+    usedIds = null;
     if (s && s.version === 2 && Array.isArray(s.works) && s.works.length) {
       state.customSymbols = (Array.isArray(s.customSymbols) ? s.customSymbols : [])
         .filter(Boolean).map(c => ({
@@ -657,9 +732,14 @@ export function load() {
       }
       if (!state.works.length) { ensureSkeleton(); return; }
       pruneMissingSymbolsAll();
-      state.activeWorkId = state.works.some(w => w.id === s.activeWorkId) ? s.activeWorkId : state.works[0].id;
+      /* activeWorkId/activeChartId 在档内匹配不上时落到第一项（换作品/换图解
+         由主窗口显式操作驱动，正常存档必然能命中；命中失败只可能发生在
+         存档被外部改坏等异常场景，回退到首项保证应用仍可用） */
+      const workHit = state.works.some(w => w.id === s.activeWorkId);
+      state.activeWorkId = workHit ? s.activeWorkId : state.works[0].id;
       const w = activeWork();
-      state.activeChartId = w.charts.some(c => c.id === s.activeChartId) ? s.activeChartId : w.charts[0].id;
+      const chartHit = w.charts.some(c => c.id === s.activeChartId);
+      state.activeChartId = chartHit ? s.activeChartId : w.charts[0].id;
       projectActive();
       if (s.tool === 'erase' || s.tool === 'border' || s.tool === 'select' ||
           s.tool === 'paste' || getSym(s.tool)) state.tool = s.tool;
@@ -1343,6 +1423,16 @@ export function setDoneRows(n) {
   const v = Math.round(+n);
   state.doneRows = Math.min(state.rows, Math.max(0, Number.isFinite(v) ? v : 0));
   save();
+  /* 进度秒级广播走专用小键；整档仍走 save 的节流落盘。
+     progT 严格递增（同毫秒自增），保证接收方能比较新旧 */
+  progT = Math.max(progT + 1, Date.now());
+  if (CAN_PERSIST) {
+    try {
+      localStorage.setItem(PROG_KEY, JSON.stringify({
+        chartId: state.activeChartId, doneRows: state.doneRows, progT,
+      }));
+    } catch (e) {}
+  }
 }
 export function stepDoneRows(delta) {
   setDoneRows(state.doneRows + (Math.round(+delta) || 0));

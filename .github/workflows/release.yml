@@ -1,0 +1,38 @@
+name: Release Desktop (exe only)
+
+# 推送 v* 标签时构建桌面端，Release 只附裸可执行文件（不打 NSIS 安装包、无签名）。
+# 用户下载后直接运行 knitchart.exe 即可（免安装绿色版）。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Build portable exe (skip installers)
+        run: npx tauri build --no-bundle
+      - name: Rename exe with version
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          Copy-Item src-tauri/target/release/knitchart.exe "SpiderKnit_$version_x64.exe"
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SpiderKnit_*_x64.exe
+          generate_release_notes: true

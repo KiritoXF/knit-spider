@@ -10,7 +10,6 @@ import LyricPip from './components/LyricPip.vue';
 import PopDoc from './components/PopDoc.vue';
 import { ui } from './ui.js';
 import { togglePip } from './pipLyrics.js';
-import { initUpdater } from './updater.js';
 
 /* ---------------- 启动 ---------------- */
 initInpProbe(); // INP 自检探针：仅 ?inp=1 时启用（性能诊断用，普通使用零开销）
@@ -39,7 +38,6 @@ if (location.search.indexOf('popdoc=1') >= 0) {
   /* 系统托盘「打开 / 关闭歌词浮窗」菜单：Rust 发事件，这里执行开关 */
   if (window.__TAURI__) {
     window.__TAURI__.event.listen('lp-tray-pip', () => togglePip()).catch(() => {});
-    initUpdater(); // 桌面端启动后检查 GitHub Releases 新版本
   }
 
   initTutorials(); // 后台载入本机上传的教程图（IndexedDB → 内存 Map，popover 同步查询用）

@@ -20,7 +20,6 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
             // 主窗口点 ×：拦截并隐藏到托盘；歌词浮窗（lyric-pip/lyric-pop）照常关闭
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
