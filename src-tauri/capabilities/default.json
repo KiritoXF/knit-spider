@@ -22,7 +22,6 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "shell:allow-open",
-    "updater:default",
-    "core:process:allow-restart"
+    "updater:default"
   ]
 }

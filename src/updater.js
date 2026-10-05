@@ -32,9 +32,11 @@ async function checkOnce(T) {
   try {
     toast('正在下载更新…', 'info');
     await update.downloadAndInstall();
-    toast('更新完成，即将重启…', 'ok');
+    toast('更新完成，正在重启…', 'ok');
     setTimeout(() => {
-      try { T.process.relaunch(); } catch (e) { location.reload(); }
+      try {
+        Promise.resolve(T.process?.relaunch?.()).catch(() => toast('请退出并重新打开应用以完成更新', 'warn'));
+      } catch (e) { toast('请退出并重新打开应用以完成更新', 'warn'); }
     }, 800);
   } catch (e) {
     toast('更新下载失败，可到发布页手动下载', 'warn');
