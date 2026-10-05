@@ -81,6 +81,15 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 - Saving uses the File System Access API to pop the system "Save As" dialog and can overwrite existing files; unsupported browsers fall back to a download
 - Edits are auto-saved to browser localStorage
 
+### Desktop App (Tauri, Windows)
+
+- The desktop app loads the exact same frontend build as the web version — every feature works identically offline
+- System tray: closing the main window hides it to the tray (the lyrics floating widget keeps running); the tray menu offers show main window / toggle floating widget / quit, and a left click on the tray icon restores the window
+- Lyrics floating widget (always-on-top picture-in-picture): shows the current row and its neighbors over any app; a separate transparent holder window serves the stitch-tutorial popover next to it; the widget remembers its position and size
+- Single-instance lock: launching the app a second time simply restores and focuses the running window
+- Auto-update: shortly after startup the app checks GitHub Releases (`latest.json`, minisign-verified); a new version can be downloaded and installed in-app (passive mode) and the app relaunches automatically — declining opens the Releases page for a manual download
+- Installers (NSIS) and update manifests are attached to [GitHub Releases](https://github.com/KiritoXF/knit-spider/releases/latest)
+
 ## Usage
 
 ### Quick Start
@@ -97,6 +106,15 @@ npm run build       # regenerate symbol data first, then emit the single-file di
 ```
 
 `dist/knitting-chart.html` works by double-clicking (file://) and can be copied to any machine for offline use.
+
+Desktop (Windows) build:
+
+```bash
+npm run tauri:build   # emits the NSIS installer and update signature (requires the Rust toolchain)
+```
+
+Before building, set the update signing key environment variable (the key is not committed, see `src-tauri/keys/`):
+`$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content src-tauri/keys/knit-spider.key -Raw`
 
 ### Basic Workflow
 

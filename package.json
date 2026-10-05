@@ -1,7 +1,7 @@
 {
   "name": "knitchart",
   "private": true,
-  "version": "0.2.4",
+  "version": "0.2.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,10 @@
     "build": "node scripts/generate-symbols.mjs && vite build",
     "gen-symbols": "node scripts/generate-symbols.mjs",
     "test:code": "node scripts/test-chart-code.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "fflate": "^0.8.3",
@@ -17,6 +20,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
+    "@tauri-apps/cli": "^2.0.0",
     "@vitejs/plugin-vue": "^6.0.0",
     "fast-xml-parser": "^5.11.1",
     "svg-path-commander": "^2.3.3",

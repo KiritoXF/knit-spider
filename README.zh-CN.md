@@ -84,6 +84,17 @@
 - 存档走 File System Access API 弹系统"另存为"框，可覆盖已有文件；旧浏览器自动降级为下载
 - 编辑内容自动保存到浏览器 localStorage
 
+### 桌面端（Tauri · Windows）
+
+![桌面端主窗口](docs/images/desktop-main.png)
+
+- 桌面端加载与网页版完全相同的前端构建产物，功能一一对应，全部可离线使用
+- 系统托盘：主窗口点 × 隐藏到托盘（歌词浮窗继续可用）；托盘菜单 = 显示主窗口 / 歌词浮窗开关 / 退出，左键点托盘图标直接唤起窗口
+- 歌词浮窗（置顶画中画）：切到别的软件也能看当前行、点织完这行；织法教程 popover 由独立透明承载窗贴边显示；浮窗位置尺寸记忆在本机
+- 多实例互斥：重复启动直接唤起并聚焦已运行的主窗口，不开第二个
+- 自动更新：启动约 15 秒后检查 GitHub Releases（`latest.json`，minisign 签名校验），发现新版本弹应用内确认框，确认后应用内下载安装（passive 模式）并自动重启；拒绝或失败时引导到 [Releases 页](https://github.com/KiritoXF/knit-spider/releases/latest)手动下载
+- 安装包（NSIS）与更新清单随 [GitHub Releases](https://github.com/KiritoXF/knit-spider/releases/latest) 发布
+
 ## 使用说明
 
 ### 快速开始
@@ -100,6 +111,15 @@ npm run build       # 先重新生成符号数据，再产出 dist/knitting-char
 ```
 
 `dist/knitting-chart.html` 双击（file://）即可使用，可拷贝到任意机器离线运行。
+
+桌面端（Windows）构建：
+
+```bash
+npm run tauri:build   # 产出 NSIS 安装包与更新签名文件（需 Rust 工具链）
+```
+
+构建前需设置更新签名私钥环境变量（密钥不入库，见 `src-tauri/keys/`）：
+`$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content src-tauri/keys/knit-spider.key -Raw`
 
 ### 基本操作
 
@@ -151,6 +171,7 @@ npm run build       # 先重新生成符号数据，再产出 dist/knitting-char
 │  └─ generate-symbols.mjs    # 从外部 JIS 符号库 SVG 提取路径，生成符号数据
 ├─ local-symbols/             # 本项目自建符号 SVG（源库没有的，如 3×3 交差）
 ├─ public/tutorials/          # 内置织法教程图（可选，按符号 id 命名）
+├─ src-tauri/                 # 桌面端（Tauri 2）：托盘 / 浮窗 / 多实例互斥 / 自动更新
 └─ src/
    ├─ main.js                 # 启动入口
    ├─ App.vue                 # 视图切换（home 首页 / editor 编辑器）与全局弹窗挂载
@@ -161,6 +182,7 @@ npm run build       # 先重新生成符号数据，再产出 dist/knitting-char
    ├─ symbols.generated.js    # 生成产物，勿手改
    ├─ exportSvg.js            # SVG 导出
    ├─ textChart.js            # 文字解纯转换模块（无 Vue 依赖，node 可直调）
+   ├─ updater.js              # 桌面端自动更新（检查 Releases → 应用内下载安装重启）
    ├─ tutorials.js            # 教程取图/取文（本机上传优先 → 内置静态资源）
    ├─ tutorialStore.js        # 教程图与文字说明的 IndexedDB 存储（含 zip 导入导出）
    ├─ selftest.js             # 页面自测脚本

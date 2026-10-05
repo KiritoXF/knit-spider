@@ -306,20 +306,18 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
 }
 
 .body-row { display: flex; flex: 1; min-height: 0; }
-.sidebar { width: 260px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid var(--acc-border); padding: 12px; background: var(--acc-surface); }
+.sidebar { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--acc-border); padding: 12px; background: var(--acc-surface); }
+/* 左栏：符号面板占满并自身滚动，缩放控件停靠在最底下（不悬浮画布） */
+.sidebar > .palette-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .main { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--acc-page); }
 /* 仅画布滚动：工具栏固定不随动 */
 .canvas-scroll { flex: 1; min-height: 0; overflow: auto; }
 
-/* ---- 画布右下角缩放控件（缩放是"看"的方式，不占工具条） ---- */
-.zoom-float {
-  position: absolute; right: 14px; bottom: 14px; z-index: 20;
-  display: flex; align-items: center; gap: 1px;
-  padding: 2px; border-radius: 999px;
-  background: color-mix(in srgb, var(--acc-surface) 94%, transparent);
-  border: 1px solid var(--acc-border);
-  box-shadow: 0 4px 14px var(--acc-shadow);
-  backdrop-filter: blur(3px);
+/* ---- 画布缩放控件：停靠左栏符号面板最底下（不悬浮画布，不挡格子） ---- */
+.zoom-dock {
+  flex: none; display: flex; align-items: center; justify-content: center; gap: 1px;
+  margin-top: 8px; padding: 4px 0 2px;
+  border-top: 1.5px dashed var(--acc-border);
 }
 .zoom-btn {
   width: 24px; height: 24px; display: grid; place-items: center;
@@ -627,7 +625,7 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
 .tcm-doc { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 7px 8px 10px; }
 .tcm-row {
   display: flex; align-items: baseline; gap: 6px;
-  padding: 2px 7px; border-radius: 7px; font-size: 13px; line-height: 1.8;
+  padding: 1px 7px; border-radius: 7px; font-size: 13px; line-height: 1.55;
 }
 .tcm-row-ws { background: var(--acc-15); }
 /* 行号 + 反面徽标编成一组：整组占固定宽度（容下两位数行号 + 徽标），
@@ -700,6 +698,11 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
   font-size: 11.5px; color: var(--acc-ink-3); font-variant-numeric: tabular-nums;
 }
 .tcm-prog-st-num b { color: var(--acc-700); font-weight: 800; }
+/* 用时估算：按最近织行节奏粗略估算剩余时间（连点测试/离开太久不计入） */
+.tcm-eta {
+  display: block; margin-top: 2px;
+  font-size: 11px; color: var(--acc-ink-3); font-variant-numeric: tabular-nums;
+}
 /* 已织完的行：文字褪成旧痕（只改文字颜色，不动整行） */
 .tcm-row-done .tcm-txt, .tcm-row-done .tcm-txt b { color: var(--acc-ink-3); font-weight: 600; }
 .tcm-row-done .tcm-rno { color: var(--acc-ink-3); }
@@ -876,4 +879,119 @@ text { user-select: none; }
   .work-card { animation: none; }
   *, *::before, *::after { transition-duration: 0s !important; }
 }
+
+/* ---- 歌词浮窗（Document Picture-in-Picture 画中画）----
+   整个 <head> 样式会克隆进 PiP 文档（pipLyrics.js），所以这里的样式在浮窗内同样生效。
+   PiP 窗自身裁切内容，popover 等都收在窗口内 */
+/* 文字解弹窗头部的「浮窗」按钮：与行数 chip 一起靠右 */
+.tc-pip-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
+.tc-pip-btn svg { width: 13px; height: 13px; }
+.tc-pip-btn + .tcm-chip { margin-left: 0; }
+.tc-pip-btn.on { background: var(--acc-100); border-color: var(--acc-300); color: var(--acc-800); }
+/* 浮窗根布局：满窗竖排 = 标题栏（标题+透明度 / 进度+控制 / 针数摘要） / 歌词区 */
+.lp-body { margin: 0; overflow: hidden; }
+.lp-root {
+  height: 100vh; display: flex; flex-direction: column;
+  background: var(--acc-surface-2); color: var(--acc-ink);
+  font-family: var(--font-ui, system-ui, -apple-system, sans-serif);
+}
+/* 标题栏单行：圆点 · 标题 · ◀ · 百分比 · ✓（矮按钮，给歌词区让空间） */
+.lp-head {
+  flex: none; display: flex; align-items: center; gap: 7px;
+  padding: 5px 8px; border-bottom: 1.5px dashed var(--acc-200);
+  background: linear-gradient(180deg, var(--acc-surface), var(--acc-surface-2));
+}
+.lp-dot { flex: none; width: 7px; height: 7px; border-radius: 999px; background: var(--acc-600); }
+.lp-title {
+  flex: 1; min-width: 0; font-size: 11.5px; color: var(--acc-ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 百分比：悬停可见 剩余针数 / 已织针数 / 剩余时间估算 */
+.lp-pct {
+  flex: none; font-size: 11.5px; font-weight: 800; color: var(--acc-700);
+  font-variant-numeric: tabular-nums;
+}
+/* 桌面端无边框浮窗：头部即拖拽区，配一个关闭钮；窗口透明 + 圆角悬空卡片 */
+.lp-x {
+  flex: none; width: 20px; height: 20px; display: grid; place-items: center;
+  border: 0; border-radius: 6px; background: transparent;
+  color: var(--acc-ink-3); font-size: 15px; line-height: 1; cursor: pointer;
+}
+.lp-x:hover { background: var(--acc-50); color: var(--acc-700); }
+.lp-tauri { border-radius: 12px; overflow: hidden; border: 1px solid var(--acc-border-strong); }
+/* 桌面端真透明：根元素背景由 JS 按透明度输出 color-mix 半透明色（文字保持全不透明，
+   即桌面歌词的「底淡字清」效果），头部渐变背景让位给根背景 */
+.lp-tauri .lp-head { background: transparent; }
+.lp-tauri { transition: background-color .2s ease; }
+
+/* ---- 空闲态（仿音乐软件桌面歌词）：未悬停时整窗全透明，只留当前行文字 ----
+   标题栏常驻但隐藏（visibility:hidden），两态布局完全一致，切换不跳位；
+   文字颜色两档手动切换（白字适浅色桌面 / 深字适深色桌面）——
+   桌面歌词软件同样不感知背景，由用户手选 */
+.lp-idle { border-color: transparent; }
+.lp-idle .lp-head { visibility: hidden; }
+.lp-idle.lp-idle-light .lp-row-cur {
+  background: transparent; color: #fff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, .9), 0 1px 4px rgba(0, 0, 0, .7), 0 0 10px rgba(0, 0, 0, .3);
+}
+.lp-idle.lp-idle-light .lp-row-cur .lp-txt b { color: #fff; }
+.lp-idle.lp-idle-light .lp-row-cur .lp-rn { color: rgba(255, 255, 255, .85); }
+.lp-idle.lp-idle-light .lp-row-cur .lp-ws { background: rgba(0, 0, 0, .45); color: #fff; }
+.lp-idle.lp-idle-dark .lp-row-cur {
+  background: transparent; color: var(--acc-ink);
+  text-shadow: 0 1px 2px var(--acc-surface);
+}
+.lp-idle.lp-idle-dark .lp-row-cur .lp-txt b { color: var(--acc-ink); }
+.lp-idle.lp-idle-dark .lp-row-cur .lp-rn { color: var(--acc-700); }
+.lp-idle.lp-idle-dark .lp-row-cur .lp-ws { background: var(--acc-100); color: var(--acc-700); }
+/* ---- 教程 popover 承载窗（?popdoc=1）：透明窗体只显示卡片本体，
+   尺寸/位置由主浮窗按内容回报计算；空白区域全透明不挡桌面 ---- */
+.lp-popdoc { margin: 0; padding: 14px; background: transparent; overflow: hidden; }
+.lp-popdoc .tc-pop { position: static; width: 100%; }
+/* 歌词区：当前行上下各 2 行，居中排版（无滚动条） */
+.lp-lyrics {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  justify-content: center; gap: 2px; padding: 8px 12px; overflow: hidden;
+  position: relative;
+}
+.lp-gen { position: absolute; } /* 复用 .tcm-gen 的过渡样式，铺满歌词区 */
+.lp-empty { margin: 0; font-size: 12px; color: var(--acc-ink-3); text-align: center; }
+.lp-row {
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 3px 8px; border-radius: 8px;
+  color: var(--acc-ink-3); font-size: 12px; line-height: 1.6;
+  transition: background-color .12s, color .12s, font-size .12s;
+}
+.lp-row .lp-txt b { font-weight: 700; }
+.lp-rno { flex: none; display: inline-flex; align-items: baseline; gap: 4px; min-width: 3rem; }
+.lp-rn {
+  font-weight: 700; font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.lp-ws {
+  flex: none; font-size: 10px; line-height: 1.4; padding: 1px 4px;
+  background: var(--acc-100); color: var(--acc-700); border-radius: 4px;
+}
+.lp-comma { color: var(--acc-ink-3); }
+/* 已织行：划线褪色；当前行：高亮。两态字号/字重/行高完全一致，
+   只有颜色和描边变化 —— 否则空闲/悬停切换时文字会重新换行，观感很差 */
+.lp-row-done { text-decoration: line-through; text-decoration-color: var(--acc-300); opacity: .75; }
+.lp-row-cur {
+  background: var(--acc-15); color: var(--acc-ink); font-size: 15px; line-height: 1.6; font-weight: 700;
+}
+.lp-row-cur .lp-txt b { color: var(--acc-700); }
+.lp-row-cur .lp-rn { color: var(--acc-700); }
+.lp-btn {
+  flex: none; min-width: 26px; padding: 3px 8px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--acc-line); background: var(--acc-surface-2);
+  color: var(--acc-ink-2); font-size: 11.5px; font-weight: 600; font-family: inherit; line-height: 1.4;
+}
+.lp-btn:hover:not(:disabled) { background: var(--acc-50); border-color: var(--acc-300); color: var(--acc-800); }
+.lp-btn:disabled { opacity: .4; cursor: not-allowed; }
+.lp-btn-main { flex: none; background: var(--acc-700); border-color: var(--acc-700); color: #fff; }
+.lp-btn-main:hover:not(:disabled) { background: var(--acc-800); border-color: var(--acc-800); color: #fff; }
+.lp-btn-main:active:not(:disabled) { transform: scale(.98); }
+/* 浮窗内教程 popover：图 + 文字说明同处一个滚动区域（imgbox 自身不再滚动） */
+.tc-pop-body { overflow-y: auto; }
+.tc-pop-body .tc-pop-imgbox { max-height: none; overflow: visible; }
 

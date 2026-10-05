@@ -77,7 +77,7 @@ const groups = computed(() => {
 </script>
 
 <template>
-  <div>
+  <div class="palette-scroll">
     <div class="flex items-center justify-between mb-1">
       <div class="text-xs font-semibold text-gray-600">符号</div>
       <div class="flex items-center gap-1">

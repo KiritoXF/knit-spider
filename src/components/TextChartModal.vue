@@ -1,13 +1,22 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { state, activeWork, getSym, stepDoneRows, setDoneRows, contentRev } from '../store.js';
+/* 剩余时间估算抽到 knitEta.js 共享模块：文字解弹窗与歌词浮窗（画中画）共用一份计速 */
+import { etaLabel } from '../knitEta.js';
+import { pipSupported, togglePip } from '../pipLyrics.js';
 import { ui, dlg } from '../ui.js';
 import { chartToTextRows } from '../textChart.js';
 import { tutorialUrlForGroup, tutorialUrlForSid, tutorialTextForGroup, tutorialTextForSid } from '../tutorials.js';
 import SymbolArt from './SymbolArt.vue';
+import { tutRev } from '../tutorialStore.js';
+import { openExternal } from '../util.js';
 
 const copied = ref(false);
 let copiedTimer = null;
+/* 歌词浮窗（画中画）：桌面 Chrome/Edge 116+ 才支持；开着时按钮呈激活态，再点关闭。
+   浮窗开着与弹窗互不干扰（关弹窗不关浮窗，浮窗里能继续织） */
+const pipSup = pipSupported();
+const pipOn = computed(() => ui.pipOpen);
 
 const close = () => { hidePop(); ui.textChartOpen = false; };
 
@@ -49,17 +58,21 @@ const headTitle = computed(() => {
    两者皆未配置的名称 tut=null，悬停无感。
    text / tutFlags 供 v-memo 用：单格编辑只变更个别行，行内容没变就跳过
    整行 vnode diff（400 行全文重建是开着文字解编辑卡顿的大头） */
-const view = computed(() => rows.value.map(x => ({
+const view = computed(() => {
+  void tutRev.n; // 订阅教程库版本：IDB 载入/增删后 view 重算（教程数据非响应式 Map）
+  return rows.value.map(x => ({
   r: x.r, ws: x.ws, count: x.count, text: x.text,
   tutFlags: (x.groups || []).map(g => (g.tut ? 'i' : '') + (g.tutText ? 't' : '')).join(','),
   groups: (x.groups || []).map(g => ({
     ...g, tut: tutorialUrlForGroup(g), tutText: tutorialTextForGroup(g),
   })),
-})));
+  }));
+});
 /* 本图解用到的符号速查：扫正文分组的 sid 去重（含背景针），累计使用次数，按次数降序。
    sym 取内置/自定义符号定义用于画缩略图；tut 为教程图 URL，tutText 为文字说明
    （有任一即显示虚线下划线） */
 const legend = computed(() => {
+  void tutRev.n; // 同 view：教程库就绪后符号速查的教程标记也要刷新
   const map = new Map();
   for (const row of rows.value) {
     for (const g of row.groups || []) {
@@ -99,6 +112,7 @@ const stitchStat = computed(() => {
   const pct = total ? Math.round(((total - remain) / total) * 100) : 0;
   return { total, remain, pct };
 });
+/* 用时估算已抽到 ../knitEta.js（弹窗 + 歌词浮窗共享计速），这里只消费 etaLabel */
 /* 打开弹窗时把当前待织行滚到视口偏上的位置，一进来就能接着织 */
 watch(() => ui.textChartOpen, async open => {
   if (!open) return;
@@ -129,7 +143,7 @@ function delayHide() {
   popTimer = setTimeout(() => { pop.value = null; }, POP_GRACE);
 }
 function onPopEnter() { clearTimeout(popTimer); }
-function onImgClick() { if (pop.value && pop.value.url) window.open(pop.value.url, '_blank'); }
+function onImgClick() { if (pop.value && pop.value.url) openExternal(pop.value.url); }
 /* 针名换行时 getBoundingClientRect 是多行碎片的联合外框，箭头会指错；
    改用光标位置取鼠标所在那一行的文字碎片 rect（取不到再退回联合框） */
 function lineRectAt(x, y) {
@@ -235,6 +249,15 @@ function onDownload() {
           </svg>
           文字解<span class="modal-sub">— {{ headTitle }}</span>
         </h2>
+        <button v-if="pipSup" class="tcm-btn tc-pip-btn" :class="{ on: pipOn }"
+          :title="pipOn ? '关闭歌词浮窗' : '弹出置顶歌词浮窗：切到别的软件 / 标签页也能看当前行、点织完这行'"
+          @click="togglePip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="4" width="20" height="14" rx="2"/><rect x="12" y="11" width="8" height="5" rx="1" fill="currentColor" stroke="none"/>
+          </svg>
+          {{ pipOn ? '浮窗中' : '浮窗' }}
+        </button>
         <span class="tcm-chip">共 {{ state.rows }} 行</span>
         <button id="tcClose" class="modal-x" title="关闭" @click="close">×</button>
       </div>
@@ -261,6 +284,8 @@ function onDownload() {
             <div class="tcm-prog-bar"><i :style="{ width: stitchStat.pct + '%' }"></i></div>
             <span class="tcm-prog-st-num">剩 <b>{{ stitchStat.remain }}</b> 针 · 已织
               {{ stitchStat.total - stitchStat.remain }} / {{ stitchStat.total }}（{{ stitchStat.pct }}%）</span>
+            <span v-if="etaLabel" class="tcm-eta"
+              title="按最近的织行节奏粗略估算；连点过快或长时间未动不算在内">照这个节奏{{ etaLabel }}织完</span>
           </div>
           <div class="tcm-side-head">
             <h3>本图解用到的符号</h3>

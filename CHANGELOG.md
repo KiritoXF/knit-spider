@@ -3,6 +3,16 @@
 所有对外可见的版本变化都记录在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 应用内入口：编辑页顶栏「⋯更多 → 更新日志」，或首页右上角「更新日志」按钮（内容与本文件同源，数据在 `src/changelog.js`）。
 
+## [0.2.5] - 2026-10-05
+
+### 新增
+- 桌面端多实例互斥（tauri-plugin-single-instance）：应用已在运行时重复启动，直接唤起并聚焦已有主窗口，不再开出第二个实例
+- 桌面端自动更新（tauri-plugin-updater）：主窗口启动约 15 秒后检查 GitHub Releases（`latest.json` + minisign 签名校验），发现新版本弹应用内确认框，确认后应用内下载安装（passive 静默模式）并自动重启；拒绝或下载失败时引导到 Releases 页手动下载
+- 桌面端构建新增更新签名产物（`createUpdaterArtifacts`），签名私钥不入库（`src-tauri/keys/` 已 gitignore）
+
+### 改动
+- 文字解弹窗行距收紧：行高 1.8 → 1.55、行内边距 2px → 1px，当前行上下占用更少，一屏可见更多行
+
 ## [0.2.4] - 2026-10-04
 
 ### 改动

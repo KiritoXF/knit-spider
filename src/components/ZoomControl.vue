@@ -2,8 +2,8 @@
 import { computed } from 'vue';
 import { state, setZoom } from '../store.js';
 
-/* 缩放属于「看的方式」，不是「画的操作」，所以贴到画布右下角，
-   不占工具条那一行的宽度。Ctrl+滚轮同步走 state.zoom。 */
+/* 缩放控件停靠在左栏符号面板最底下：不悬浮在画布上，
+   不会挡住格子的点选。Ctrl+滚轮缩放同步走同一 state.zoom。 */
 const MIN = 0.5, MAX = 2.5, STEP = 0.1;
 const pct = computed(() => Math.round(state.zoom * 100));
 const atMin = computed(() => state.zoom <= MIN + 1e-6);
@@ -16,7 +16,7 @@ function resetZoom() { setZoom(1); }
 </script>
 
 <template>
-  <div class="zoom-float" role="group" aria-label="画布缩放">
+  <div class="zoom-dock" role="group" aria-label="画布缩放">
     <button class="zoom-btn" :disabled="atMin" title="缩小（Ctrl+滚轮向下）"
       aria-label="缩小" @click="zoomBy(-STEP)">−</button>
     <button id="btnZoomReset" class="zoom-val" :class="{ 'zoom-val-off': state.zoom === 1 }"

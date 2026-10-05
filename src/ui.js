@@ -6,24 +6,37 @@ export const ui = reactive({
   loading: false,    // 切换作品/图解时的全屏 loading 遮罩
   editorOpen: false,
   textChartOpen: false, // 文字解弹窗
+  pipOpen: false,       // 歌词浮窗（画中画，置顶于其他软件之上）
   helpOpen: false,      // 操作说明浮层
   symbolOpen: false,    // 符号库弹窗（符号字典 + 教程图 + 反面织法 + 移除恢复，只在首页使用）
   changelogOpen: false, // 更新日志弹窗（数据在 changelog.js）
   chartCodeOpen: false, // 图解代码弹窗（复制 / 导入）
   chartCodeMode: 'copy', // 'copy' | 'import'
   shapingOpen: false,   // 塑形（减针/加针）规则面板
+  mirrorH: false,       // 粘贴镜像：水平翻转复制块（本机 UI 偏好，不进存档）
+  mirrorV: false,       // 粘贴镜像：垂直翻转复制块（可与水平叠加 = 旋转180°）
   toasts: [],        // 轻提示队列 [{id,msg,tone}] tone: 'ok'|'warn'|'info'
 });
 
-/* ---- 轻提示 toast：右下角，2.6s 自动消失 ---- */
+/* ---- 轻提示 toast：右下角，2.6s 自动消失；同文案同语气不叠加（刷新在屏时间） ---- */
 let toastSeq = 0;
 export function toast(msg, tone = 'info') {
+  const dup = ui.toasts.find(t => t.msg === msg && t.tone === tone);
+  if (dup) {
+    clearTimeout(dup._timer); // 已在屏：只重置消失倒计时，不重复弹
+    dup._timer = setTimeout(() => {
+      const i = ui.toasts.indexOf(dup);
+      if (i >= 0) ui.toasts.splice(i, 1);
+    }, 2600);
+    return;
+  }
   const id = ++toastSeq;
-  ui.toasts.push({ id, msg, tone });
-  setTimeout(() => {
+  const item = { id, msg, tone, _timer: 0 };
+  item._timer = setTimeout(() => {
     const i = ui.toasts.findIndex(t => t.id === id);
     if (i >= 0) ui.toasts.splice(i, 1);
   }, 2600);
+  ui.toasts.push(item);
 }
 
 /* ---- 应用内对话框（替代原生 prompt/confirm）：Promise 化 ----

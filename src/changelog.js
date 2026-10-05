@@ -2,6 +2,15 @@
    发新版本时：这里加一段 → CHANGELOG.md 加一段 → package.json version 跟进 */
 export const CHANGELOG = [
   {
+    version: 'v0.2.5',
+    date: '2026-10-05',
+    items: [
+      '桌面端新增多实例互斥：重复启动直接唤起已运行的主窗口，不再开第二个',
+      '桌面端新增自动更新：启动后检查 GitHub Releases，发现新版本可应用内下载安装并自动重启',
+      '文字解弹窗行距收紧：当前行上下间距更紧凑，一屏能看到更多行',
+    ],
+  },
+  {
     version: 'v0.2.4',
     date: '2026-10-04',
     items: [

@@ -2,6 +2,14 @@ export const SVGNS = 'http://www.w3.org/2000/svg';
 export const CELL = 28; // 1 格在 zoom=1 时的像素
 export const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 
+/* 外部链接统一出口：桌面端走 shell 插件（系统默认浏览器），网页端开新标签 */
+export function openExternal(url) {
+  if (!url) return;
+  const T = typeof window !== 'undefined' ? window.__TAURI__ : null;
+  if (T && T.shell && T.shell.open) { T.shell.open(url).catch(() => {}); return; }
+  window.open(url, '_blank');
+}
+
 /* 符号 → SVG 内部标记字符串（内置符号用预生成 svg，自定义符号由 shapes 拼）。
    SymbolArt 组件与画布符号层（v-html 一次性渲染）共用，保证两处渲染一致 */
 export function symbolInnerMarkup(sym) {

@@ -5,7 +5,7 @@ import {
   copySelection, deleteSelection, addAnnotation, clipSel, clipBoard,
   stepDoneRows, flushPersist,
 } from '../store.js';
-import { appPrompt, toast } from '../ui.js';
+import { appPrompt, toast, ui } from '../ui.js';
 
 /* 织进度：当前待织行 = doneRows + 1（行号自下而上，与织的方向一致） */
 const donePct = computed(() => state.rows ? Math.min(100, (state.doneRows / state.rows) * 100) : 0);
@@ -123,6 +123,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
           <rect x="8" y="2" width="8" height="4" rx="1"/>
           <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
         </svg>粘贴</button>
+      <!-- 镜像粘贴：只影响粘贴时的变换（水平/垂直可叠加=旋转180°），预览框同步照实显示 -->
+      <button id="btnMirrorH" class="tb-btn" :class="{ 'tb-btn-on': ui.mirrorH }"
+        :disabled="!clipBoard.data" title="镜像粘贴：水平翻转复制块（再点一次取消）"
+        :aria-pressed="ui.mirrorH" @click="ui.mirrorH = !ui.mirrorH">
+        <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3v18" stroke-dasharray="2.5 2.5"/><path d="M8 8 4 12l4 4"/><path d="M16 8l4 4-4 4"/>
+        </svg>左右</button>
+      <button id="btnMirrorV" class="tb-btn" :class="{ 'tb-btn-on': ui.mirrorV }"
+        :disabled="!clipBoard.data" title="镜像粘贴：垂直翻转复制块（再点一次取消）"
+        :aria-pressed="ui.mirrorV" @click="ui.mirrorV = !ui.mirrorV">
+        <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 12h18" stroke-dasharray="2.5 2.5"/><path d="M8 8l4-4 4 4"/><path d="M8 16l4 4 4-4"/>
+        </svg>上下</button>
       <span v-if="clipBoard.info" class="text-[11px] text-rose-600">{{ clipBoard.info }}</span>
     </div>
 

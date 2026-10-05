@@ -32,6 +32,7 @@ function onWheelZoom(e) {
     <div class="body-row">
       <aside class="sidebar">
         <PalettePanel/>
+        <ZoomControl/>
       </aside>
 
       <main class="main">
@@ -39,7 +40,6 @@ function onWheelZoom(e) {
         <div class="canvas-scroll" @wheel.ctrl.prevent="onWheelZoom">
           <ChartCanvas/>
         </div>
-        <ZoomControl/>
       </main>
     </div>
   </div>

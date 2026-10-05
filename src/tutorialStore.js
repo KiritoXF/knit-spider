@@ -8,10 +8,17 @@
 const DB_NAME = 'knitChartTutor';
 const STORE = 'tutor';
 
+import { reactive } from 'vue';
+
 let dbPromise = null;
 const urlMap = new Map();   // sid → objectURL（<img> 显示用）
 const metaMap = new Map();  // sid → {name, blob, u8|null, type}
 const textMap = new Map();  // sid → 文字说明
+/* 教程库版本号：内存 Map 是非响应式的，IDB 异步载入/增删完成后 bump 一下，
+   让依赖教程数据的 computed（文字解弹窗 / 歌词浮窗的 view）重新求值。
+   没有它，浮窗 mount 时 IDB 尚未载入完，教程数据永久停留在「未配置」状态 */
+export const tutRev = reactive({ n: 0 });
+function bumpTutRev() { tutRev.n++; }
 
 export function openDb() {
   if (dbPromise) return dbPromise;
@@ -45,6 +52,7 @@ function adoptRecord(sid, name, blob) {
   m.name = name; m.blob = blob; m.u8 = null;
   m.type = blob.type || 'image/png';
   metaMap.set(sid, m);
+  bumpTutRev();
   return blob.arrayBuffer().then(buf => { m.u8 = new Uint8Array(buf); }, () => {});
 }
 
@@ -53,6 +61,7 @@ function adoptText(sid, text) {
   const v = (text == null) ? '' : String(text);
   if (v.trim()) textMap.set(sid, v);
   else textMap.delete(sid);
+  bumpTutRev();
 }
 
 /* 启动时调用：库里全部记录载入内存。失败静默，不阻塞应用 */

@@ -1014,8 +1014,14 @@ export function copySelection() {
   const col0 = Math.min(rect.c0, rect.c1), col1 = Math.max(rect.c0, rect.c1);
   const row0 = Math.min(rect.r0, rect.r1), row1 = Math.max(rect.r0, rect.r1);
   const inside = (c, r, w, h) => c >= col0 && r >= row0 && c + w - 1 <= col1 && r + h - 1 <= row1;
+  /* fx/fy：符号图形自身的水平/垂直镜像标记（镜像粘贴产生），复制时随块带走 */
   const placements = state.placements.filter(p => inside(p.col, p.row, p.w, p.h))
-    .map(p => ({ sym: p.sym, col: p.col - col0, row: p.row - row0 }));
+    .map(p => {
+      const q = { sym: p.sym, col: p.col - col0, row: p.row - row0 };
+      if (p.fx) q.fx = true;
+      if (p.fy) q.fy = true;
+      return q;
+    });
   const borders = state.borders.filter(b => inside(b.col, b.row, b.w, b.h))
     .map(b => ({ col: b.col - col0, row: b.row - row0, w: b.w, h: b.h }));
   const annotations = state.annotations.filter(a => inside(a.col, a.row, a.w, a.h))
@@ -1029,10 +1035,14 @@ export function copySelection() {
   return placements.length;
 }
 
-/* 以点击格为复制块左下角粘贴；越界或符号缺失的部分自动跳过 */
+/* 以点击格为复制块左下角粘贴；越界或符号缺失的部分自动跳过。
+   ui.mirrorH / ui.mirrorV 开着时对复制块做一次性镜像变换：布局按符号
+   占格整块翻转（多格麻花不拆散），符号图形翻转发 fx/fy 标记由渲染层
+   镜像绘制；再对已带镜像标记的符号粘贴会抵消回正向（fx = toggle） */
 export function pasteAt(c, r) {
   const cb = clipBoard.data;
   if (!cb || guardLocked()) return;
+  const mH = !!ui.mirrorH, mV = !!ui.mirrorV;
   /* 先算出所有能落位的符号，并把它们覆盖的格收进 Set；
      再用一趟遍历剔掉与这些格相交的旧符号、一次性拼上新符号。
      旧实现对每个新符号都 filter 一遍全数组（O(放置数×粘贴数)），
@@ -1042,9 +1052,15 @@ export function pasteAt(c, r) {
   for (const rp of cb.placements) {
     const d = getSym(rp.sym);
     if (!d) continue;
-    const col = c + rp.col, row = r + rp.row;
+    const col = c + (mH ? cb.w - rp.col - d.w : rp.col);
+    const row = r + (mV ? cb.h - rp.row - d.h : rp.row);
+    const fx = mH ? !rp.fx : !!rp.fx;
+    const fy = mV ? !rp.fy : !!rp.fy;
+    const q = { sym: rp.sym, col, row, w: d.w, h: d.h };
+    if (fx) q.fx = true;
+    if (fy) q.fy = true;
     if (!fits(col, row, d.w, d.h)) continue;
-    add.push({ sym: rp.sym, col, row, w: d.w, h: d.h });
+    add.push(q);
     if (!cover) cover = new Set();
     for (let i = 0; i < d.w; i++)
       for (let j = 0; j < d.h; j++) cover.add((col + i) * 10000 + (row + j));
@@ -1078,13 +1094,15 @@ export function pasteAt(c, r) {
     markCanvasNone(); // 没有符号落位（越界或剪贴板只有边框/标注），符号位图无涉
   }
   for (const rb of (cb.borders || [])) { // 旧剪贴板数据无 borders，兜底
-    const col = c + rb.col, row = r + rb.row;
+    const col = c + (mH ? cb.w - rb.col - rb.w : rb.col);
+    const row = r + (mV ? cb.h - rb.row - rb.h : rb.row);
     if (!fits(col, row, rb.w, rb.h)) continue;
     const dup = state.borders.some(b => b.col === col && b.row === row && b.w === rb.w && b.h === rb.h);
     if (!dup) { state.borders = state.borders.concat([{ col, row, w: rb.w, h: rb.h }]); any = true; }
   }
   for (const ra of (cb.annotations || [])) { // 旧剪贴板数据无 annotations，兜底
-    const col = c + ra.col, row = r + ra.row;
+    const col = c + (mH ? cb.w - ra.col - ra.w : ra.col);
+    const row = r + (mV ? cb.h - ra.row - ra.h : ra.row);
     if (!fits(col, row, ra.w, ra.h)) continue;
     const dup = state.annotations.some(a => a.col === col && a.row === row && a.w === ra.w && a.h === ra.h);
     if (!dup) { state.annotations = state.annotations.concat([{ col, row, w: ra.w, h: ra.h, text: ra.text }]); any = true; }

@@ -55,6 +55,27 @@ async function onDeleteExisting(id) {
   if (ok) deleteCustom(id);
 }
 
+/* 图元镜像：x → 宽-x / y → 高-y（0.25 格步进坐标精确换算，画对称符号不用画两遍）。
+   画到一半的曲线（ed.drawing）不参与，先让它画完 */
+function flipShapes(dir) {
+  if (!ed.shapes.length) return;
+  const mx = sh => { // 水平：所有 x 类坐标镜像
+    if (sh.type === 'line') { sh.x1 = ed.w - sh.x1; sh.x2 = ed.w - sh.x2; }
+    else if (sh.type === 'circle') sh.cx = ed.w - sh.cx;
+    else if (sh.type === 'rect') sh.x = ed.w - sh.x - sh.rw;
+    else if (sh.type === 'curve') { sh.x1 = ed.w - sh.x1; sh.x2 = ed.w - sh.x2; sh.cx1 = ed.w - sh.cx1; sh.cx2 = ed.w - sh.cx2; }
+  };
+  const my = sh => { // 垂直：所有 y 类坐标镜像
+    if (sh.type === 'line') { sh.y1 = ed.h - sh.y1; sh.y2 = ed.h - sh.y2; }
+    else if (sh.type === 'circle') sh.cy = ed.h - sh.cy;
+    else if (sh.type === 'rect') sh.y = ed.h - sh.y - sh.rh;
+    else if (sh.type === 'curve') { sh.y1 = ed.h - sh.y1; sh.y2 = ed.h - sh.y2; sh.cy1 = ed.h - sh.cy1; sh.cy2 = ed.h - sh.cy2; }
+  };
+  const fn = dir === 'h' ? mx : my;
+  ed.shapes = ed.shapes.map(sh => { const c = { ...sh }; fn(c); return c; });
+  ed.drawing = null; // 正在画的半截图元直接取消，避免与翻转后的画布错位
+}
+
 function onSave() {
   ed.name = document.getElementById('edName').value.trim();
   if (!ed.name) return toast('请填写符号名称', 'warn');
@@ -280,6 +301,12 @@ onUnmounted(() => {
           </div>
           <div>
             <div class="text-gray-600 mb-1">已画图元</div>
+            <div class="flex items-center gap-1 mb-1">
+              <button id="edFlipH" class="border rounded px-2 py-0.5 bg-white" title="所有图元水平镜像（x → 宽-x）"
+                @click="flipShapes('h')">左右翻转</button>
+              <button id="edFlipV" class="border rounded px-2 py-0.5 bg-white" title="所有图元垂直镜像（y → 高-y）"
+                @click="flipShapes('v')">上下翻转</button>
+            </div>
             <div id="edShapes" class="border rounded p-1 h-32 overflow-auto bg-gray-50">
               <div v-for="(sh, i) in ed.shapes" :key="'l' + i"
                 class="flex items-center justify-between px-1 py-0.5">

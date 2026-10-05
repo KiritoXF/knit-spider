@@ -4,8 +4,9 @@ import {
   state, labelFor, setColLabel, applyAt, commitBorder,
   fits, toggleHighlight, getSym, pasteAt, clipSel, clipBoard, contentRev,
 } from '../store.js';
-import { CELL, symDataUrl } from '../util.js';
+import { CELL, symDataUrl, symbolInnerMarkup } from '../util.js';
 import { createTileLayer } from '../tileLayer.js';
+import { ui } from '../ui.js';
 
 const svgEl = ref(null);
 const symLayerEl = ref(null);
@@ -330,6 +331,41 @@ function updateGhost(cell) {
   ghost.visible = true;
 }
 
+/* ---- 粘贴预览内容：ghost 框里照实画出（镜像后的）复制块，方便确认落位 ----
+   坐标变换与 pasteAt 完全同源：块内相对格位 → 世界格位，镜像时按符号
+   占格整块翻转；符号图形带 fx/fy 的镜像由 SVG transform 实现（与位图
+   渲染一致）。ghost 不显示时（指针不在网格上）返回 null 整组不渲染 */
+const pasteGhost = computed(() => {
+  if (!ghost.visible || state.tool !== 'paste' || !clipBoard.data) return null;
+  const cb = clipBoard.data;
+  const x0 = ghost.x, y0 = ghost.y; // 粘贴块世界左上角（updateGhost 已算好）
+  const syms = [], borders = [], annos = [];
+  for (const rp of cb.placements) {
+    const d = getSym(rp.sym);
+    if (!d) continue;
+    let cc = rp.col, rr = rp.row;
+    if (ui.mirrorH) cc = cb.w - cc - d.w;
+    if (ui.mirrorV) rr = cb.h - rr - d.h;
+    const fx = ui.mirrorH ? !rp.fx : !!rp.fx;
+    const fy = ui.mirrorV ? !rp.fy : !!rp.fy;
+    let inner = symbolInnerMarkup(d);
+    if (fx) inner = `<g transform="translate(${d.w},0) scale(-1,1)">${inner}</g>`;
+    if (fy) inner = `<g transform="translate(0,${d.h}) scale(1,-1)">${inner}</g>`;
+    syms.push({ x: x0 + cc, y: y0 + (cb.h - rr - d.h), w: d.w, h: d.h, inner });
+  }
+  for (const b of (cb.borders || [])) {
+    const cc = ui.mirrorH ? cb.w - b.col - b.w : b.col;
+    const rr = ui.mirrorV ? cb.h - b.row - b.h : b.row;
+    borders.push({ x: x0 + cc, y: y0 + (cb.h - rr - b.h), w: b.w, h: b.h });
+  }
+  for (const a of (cb.annotations || [])) {
+    const cc = ui.mirrorH ? cb.w - a.col - a.w : a.col;
+    const rr = ui.mirrorV ? cb.h - a.row - a.h : a.row;
+    annos.push({ x: x0 + cc, y: y0 + (cb.h - rr - a.h), w: a.w, h: a.h, text: a.text });
+  }
+  return { syms, borders, annos };
+});
+
 onMounted(() => {
   window.addEventListener('pointerup', onPointerUp);
   layer = createTileLayer({
@@ -438,6 +474,24 @@ onUnmounted(() => {
         :fill="ghost.color" opacity="0.15" :stroke="ghost.color"
         stroke-width="0.04" stroke-dasharray="0.12 0.08"
         :style="{ display: ghost.visible ? '' : 'none' }"/>
+
+      <!-- 粘贴预览内容：照实画出（镜像后的）复制块符号/边框/标注，方便确认落位 -->
+      <g v-if="pasteGhost" id="pasteGhost" pointer-events="none" opacity="0.55">
+        <svg v-for="(s, i) in pasteGhost.syms" :key="'ps' + i"
+          :x="s.x" :y="s.y" :width="s.w" :height="s.h"
+          :viewBox="`0 0 ${s.w} ${s.h}`" overflow="visible" v-html="s.inner"/>
+        <rect v-for="(b, i) in pasteGhost.borders" :key="'pb' + i"
+          :x="b.x" :y="b.y" :width="b.w" :height="b.h"
+          fill="none" stroke="#0f172a" stroke-width="0.1"/>
+        <g v-for="(a, i) in pasteGhost.annos" :key="'pa' + i">
+          <rect :x="a.x" :y="a.y" :width="a.w" :height="a.h"
+            fill="#14b8a6" fill-opacity="0.07" stroke="#0d9488"
+            stroke-width="0.06" stroke-dasharray="0.18 0.12"/>
+          <text :x="a.x + 0.05" :y="a.y - 0.14"
+            font-size="0.4" font-weight="bold" fill="#0f766e"
+            stroke="#fff" stroke-width="0.12" style="paint-order: stroke">{{ a.text }}</text>
+        </g>
+      </g>
     </svg>
   </div>
 </template>

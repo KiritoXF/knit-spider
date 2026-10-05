@@ -173,6 +173,24 @@ export function createTileLayer({ host, scrollEl, symImage, symBitmap, getSym })
       const vy0 = Math.max(dy0, t.tr * ts), vy1 = Math.min(dy0 + dh, (t.tr + 1) * ts);
       if (vx1 <= vx0 || vy1 <= vy0) continue;
       const iw = bmp.width, ih = bmp.height;
+      /* fx/fy（镜像粘贴标记）：在符号自身足迹内翻转绘制。save/translate/scale
+         把符号本地坐标映到屏幕；可见交区换算成本地矩形后照常走「源矩形裁剪」
+         路径（避免负目标坐标的 SVG 图像裁剪 bug） */
+      if (p.fx || p.fy) {
+        const sx = p.fx ? -1 : 1, sy = p.fy ? -1 : 1;
+        ctx.save();
+        ctx.translate(dx0 + (sx < 0 ? dw : 0), dy0 + (sy < 0 ? dh : 0));
+        ctx.scale(sx, sy);
+        const lx0 = sx < 0 ? dx0 + dw - vx1 : vx0 - dx0;
+        const lx1 = sx < 0 ? dx0 + dw - vx0 : vx1 - dx0;
+        const ly0 = sy < 0 ? dy0 + dh - vy1 : vy0 - dy0;
+        const ly1 = sy < 0 ? dy0 + dh - vy0 : vy1 - dy0;
+        ctx.drawImage(bmp, lx0 / dw * iw, ly0 / dh * ih,
+          (lx1 - lx0) / dw * iw, (ly1 - ly0) / dh * ih, lx0, ly0, lx1 - lx0, ly1 - ly0);
+        ctx.restore();
+        t.dbgDraw++;
+        continue;
+      }
       const u0 = (vx0 - dx0) / dw * iw, v0 = (vy0 - dy0) / dh * ih;
       const uw = (vx1 - vx0) / dw * iw, vh = (vy1 - vy0) / dh * ih;
       ctx.drawImage(bmp, u0, v0, uw, vh, vx0, vy0, vx1 - vx0, vy1 - vy0);

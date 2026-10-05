@@ -1,0 +1,24 @@
+[package]
+name = "knitchart"
+version = "0.2.5"
+description = "蜘蛛织毛线 —— 棒针图解编辑器（桌面端）"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri 2 无需 transparent feature：窗口透明由 tauri.conf.json / WebviewWindow 的
+# transparent 选项直接支持（那是 v1 的 cargo feature，v2 已移除）
+# tray-icon：系统托盘（主窗口缩到托盘，歌词浮窗常驻）
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"  # 教程图「点击查看原图」用系统浏览器打开外部链接
+tauri-plugin-single-instance = "2"  # 多实例互斥：重复启动时唤起已有主窗口
+tauri-plugin-updater = "2"  # 自动更新：启动时检查 GitHub Releases，应用内下载安装
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
