@@ -204,7 +204,7 @@ export function switchChart(id) {
   resetHistory();
   save();
 }
-export function addWork(name) {
+export function addWork(name, rows = 36, cols = 24) {
   syncActiveChart();
   const w = {
     id: genId('w'),
@@ -212,7 +212,7 @@ export function addWork(name) {
     charts: [],
     updatedAt: Date.now(),
   };
-  w.charts.push(newChart('图解 1'));
+  w.charts.push(newChart('图解 1', rows, cols));
   state.works.push(w);
   state.activeWorkId = w.id;
   state.activeChartId = w.charts[0].id;
@@ -957,7 +957,7 @@ function mergeCustomSymbols(list) {
 
 /* 载入 JSON：v2 作品包 → 导入为新作品；v1 单图解 → 追加为当前作品的新图解。
    一律追加、不覆盖现有内容；失败抛错由调用方提示。返回 {works, charts} */
-export function importJson(text) {
+export function importJson(text, asWorkName) {
   const s = JSON.parse(text);
   if (!s || typeof s !== 'object') throw new Error('不是本工具导出的存档文件');
   invalidatePersist(); // 导入会增作品并清理全部作品的失效符号引用
@@ -983,9 +983,24 @@ export function importJson(text) {
     throw new Error('缺少 rows/cols，不是本工具导出的图解文件');
   }
   mergeCustomSymbols(s.customSymbols);
+  const c = sanitizeChartIn({ ...s, name: String(s.name || '').trim() || '导入图解' }, []);
+  if (asWorkName != null) {
+    // 首页「新建 → 从文件导入」：单图解存档直接立为一个新作品
+    const w = {
+      id: genId('w'),
+      name: uniqueName(String(asWorkName).trim() || '作品', state.works.map(x => x.name)),
+      charts: [c],
+      updatedAt: Date.now(),
+    };
+    state.works.push(w);
+    state.activeWorkId = w.id;
+    state.activeChartId = c.id;
+    projectActive();
+    resetHistory();
+    save();
+    return { works: 1, charts: 1 };
+  }
   const w = activeWork();
-  const c = sanitizeChartIn({ ...s, name: String(s.name || '').trim() || '导入图解' },
-    w.charts.map(x => x.name));
   w.charts.push(c);
   pruneMissingSymbolsAll();
   switchChart(c.id);
@@ -1116,9 +1131,9 @@ export function copySelection() {
 }
 
 /* 以点击格为复制块左下角粘贴；越界或符号缺失的部分自动跳过。
-   ui.mirrorH / ui.mirrorV 开着时对复制块做一次性镜像变换：布局按符号
-   占格整块翻转（多格麻花不拆散），符号图形翻转发 fx/fy 标记由渲染层
-   镜像绘制；再对已带镜像标记的符号粘贴会抵消回正向（fx = toggle） */
+   ui.mirrorH / ui.mirrorV 开着时对复制块做一次性镜像变换：只翻转布局位置
+   （按符号占格整块搬，多格麻花不拆散），符号本身与显示原样保留——
+   已有的 fx/fy 标记照抄，不做任何符号替换或图形翻转 */
 export function pasteAt(c, r) {
   const cb = clipBoard.data;
   if (!cb || guardLocked()) return;
@@ -1134,11 +1149,9 @@ export function pasteAt(c, r) {
     if (!d) continue;
     const col = c + (mH ? cb.w - rp.col - d.w : rp.col);
     const row = r + (mV ? cb.h - rp.row - d.h : rp.row);
-    const fx = mH ? !rp.fx : !!rp.fx;
-    const fy = mV ? !rp.fy : !!rp.fy;
     const q = { sym: rp.sym, col, row, w: d.w, h: d.h };
-    if (fx) q.fx = true;
-    if (fy) q.fy = true;
+    if (rp.fx) q.fx = true;
+    if (rp.fy) q.fy = true;
     if (!fits(col, row, d.w, d.h)) continue;
     add.push(q);
     if (!cover) cover = new Set();

@@ -379,6 +379,7 @@ export async function runSelfTest() {
   await t('mirror-paste', async () => {
     // 接 copy-paste 前置状态：c22L@2,2（4×1 宽符号）+ 边框{1,1,2,2}，剪贴板 w=6
     // 水平镜像：c22L 占 4 格，rel col=2 → 6-2-4=0 → 粘贴后 col=8+0=8；边框 rel col=1 → 6-1-2=3 → col=11
+    // 只翻转位置：符号与显示原样保留（不换符号、不叠 fx）
     ui.mirrorH = true; ui.mirrorV = false;
     selectTool('select');
     clipSel.rect = { c0: 0, r0: 1, c1: 5, r1: 3 };
@@ -387,7 +388,7 @@ export async function runSelfTest() {
     pasteAt(8, 6);
     await tick();
     const p = state.placements.find(q => q.sym === 'c22L' && q.col === 8);
-    const ok = !!p && p.fx === true && !p.fy &&
+    const ok = !!p && !p.fx && !p.fy &&
       state.borders.some(b => b.col === 11 && b.row === 6 && b.w === 2 && b.h === 2);
     undo(); // 清理
     ui.mirrorH = false;

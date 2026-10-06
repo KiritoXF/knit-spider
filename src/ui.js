@@ -10,6 +10,7 @@ export const ui = reactive({
   helpOpen: false,      // 操作说明浮层
   symbolOpen: false,    // 符号库弹窗（符号字典 + 教程图 + 反面织法 + 移除恢复，只在首页使用）
   changelogOpen: false, // 更新日志弹窗（数据在 changelog.js）
+  newWorkOpen: false,   // 首页「新建作品」弹窗（尺寸预设 + 名称 + 从文件导入）
   chartCodeOpen: false, // 图解代码弹窗（复制 / 导入）
   chartCodeMode: 'copy', // 'copy' | 'import'
   shapingOpen: false,   // 塑形（减针/加针）规则面板

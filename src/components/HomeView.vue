@@ -1,10 +1,11 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 import {
-  state, addWork, renameWork, deleteWork, switchWork, switchChart,
+  state, renameWork, deleteWork, switchWork, switchChart,
   THEMES, themeName, setTheme,
 } from '../store.js';
 import { ui, withLoading, appConfirm, appPrompt } from '../ui.js';
+import NewWorkModal from './NewWorkModal.vue';
 
 /* 配色切换：首页只放一个「点一下换下一套」的按钮，足够；
    图解页在「⋯更多」里给了四套的完整菜单 */
@@ -19,10 +20,8 @@ function openWork(w) {
 function openChart(w, c) {
   withLoading(() => { switchWork(w.id); switchChart(c.id); ui.view = 'editor'; });
 }
-async function onAdd() {
-  const t = await appPrompt({ title: '新建作品', placeholder: '作品名称（留空自动命名）', okText: '创建' });
-  if (t === null) return;
-  withLoading(() => addWork(t)); // 留空自动命名；建完留在首页，新卡片直接出现在网格里
+function onAdd() {
+  ui.newWorkOpen = true; // 尺寸预设 / 名称 / 从文件导入，都在弹窗里选
 }
 async function onRename(w) {
   const t = await appPrompt({ title: '重命名作品', value: w.name, okText: '保存' });
@@ -148,6 +147,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClickLinks));
 
       <button class="work-card wc-new" @click="onAdd">＋ 新建作品</button>
     </div>
+
+    <NewWorkModal/>
 
     <footer class="home-foot">
       <span>© 2026 蜘蛛织毛线 ·
