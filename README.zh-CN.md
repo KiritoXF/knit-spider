@@ -4,6 +4,8 @@
 
 纯前端的棒针编织图解编辑器：画格子、摆符号、框选复制、区域标注、图解转文字解，还能给每个针法配上织法教程（图片或文字说明），存档与导出一条龙。构建产物是单个自包含 HTML，双击即可离线使用，无需联网。
 
+> **在线使用**：无需下载，浏览器直接打开 → <https://kiritoxf.github.io/knit-spider/knitting-chart.html>（GitHub Pages 托管）
+
 ![图解编辑页](docs/images/editor.png)
 
 ## 功能特性
@@ -92,15 +94,14 @@
 - 系统托盘：主窗口点 × 隐藏到托盘（歌词浮窗继续可用）；托盘菜单 = 显示主窗口 / 歌词浮窗开关 / 退出，左键点托盘图标直接唤起窗口
 - 歌词浮窗（置顶画中画）：切到别的软件也能看当前行、点织完这行；织法教程 popover 由独立透明承载窗贴边显示；浮窗位置尺寸记忆在本机
 - 多实例互斥：重复启动直接唤起并聚焦已运行的主窗口，不开第二个
-- 自动更新：启动约 15 秒后检查 GitHub Releases（`latest.json`，minisign 签名校验），发现新版本弹应用内确认框，确认后应用内下载安装（passive 模式）并自动重启；拒绝或失败时引导到 [Releases 页](https://github.com/KiritoXF/knit-spider/releases/latest)手动下载
-- 安装包与更新清单随 [GitHub Releases](https://github.com/KiritoXF/knit-spider/releases/latest) 发布
+- 安装包随 [GitHub Releases](https://github.com/KiritoXF/knit-spider/releases/latest) 发布
 
 ### 桌面端使用方法
 
 - **下载即用**：从 [Releases](https://github.com/KiritoXF/knit-spider/releases/latest) 下载 `SpiderKnit_<版本>_x64.exe`——免安装绿色版，双击即可运行，无需安装、无需管理员权限，放到任意文件夹都行
 - **托盘行为**：点窗口 × 是最小化到托盘而非退出——左键点托盘图标或托盘菜单均可唤回；彻底退出走托盘菜单「退出」
 - **浮窗**：托盘菜单或应用内开关；浮窗置顶于其他软件之上，边看屏幕上的图解边对着织当前行；拖动可挪位置，位置记忆在本机
-- **更新**：应用启动后会自动检查 GitHub Releases 并在应用内提示更新；也可以直接到 Releases 页下载最新 exe 替换旧文件
+- **更新**：到 [Releases 页](https://github.com/KiritoXF/knit-spider/releases/latest)下载最新 exe 替换旧文件即可
 
 ## 使用说明
 
@@ -123,14 +124,11 @@ npm run build       # 先重新生成符号数据，再产出 dist/knitting-char
 
 ```bash
 npm run tauri:dev           # 桌面端开发调试（热重载窗口）
-npm run tauri:build         # 产出 NSIS 安装包 + 更新签名文件（需 Rust 工具链）
+npm run tauri:build         # 产出 NSIS 安装包（需 Rust 工具链）
 npx tauri build --no-bundle # 仅产出免安装绿色版裸 exe：src-tauri/target/release/knitchart.exe
 ```
 
-打包安装包前需设置更新签名私钥环境变量（密钥不入库，见 `src-tauri/keys/`）：
-`$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content src-tauri/keys/knit-spider.key -Raw`
-
-CI 打包：推送 `v*` 标签会触发 [.github/workflows/release.yml](.github/workflows/release.yml)，在 `windows-latest` 上构建绿色版 exe（`npx tauri build --no-bundle`），重命名为 `SpiderKnit_<版本>_x64.exe` 并挂到 GitHub Release——不打 NSIS、不签名，用户下载后直接运行。
+CI 打包：推送 `v*` 标签会触发 [.github/workflows/release.yml](.github/workflows/release.yml)，在 `windows-latest` 上构建绿色版 exe（`npx tauri build --no-bundle`），重命名为 `SpiderKnit_<版本>_x64.exe` 并挂到 GitHub Release——不打 NSIS，用户下载后直接运行。
 
 ### 基本操作
 
@@ -182,7 +180,7 @@ CI 打包：推送 `v*` 标签会触发 [.github/workflows/release.yml](.github/
 │  └─ generate-symbols.mjs    # 从外部 JIS 符号库 SVG 提取路径，生成符号数据
 ├─ local-symbols/             # 本项目自建符号 SVG（源库没有的，如 3×3 交差）
 ├─ public/tutorials/          # 内置织法教程图（可选，按符号 id 命名）
-├─ src-tauri/                 # 桌面端（Tauri 2）：托盘 / 浮窗 / 多实例互斥 / 自动更新
+├─ src-tauri/                 # 桌面端（Tauri 2）：托盘 / 浮窗 / 多实例互斥
 └─ src/
    ├─ main.js                 # 启动入口
    ├─ App.vue                 # 视图切换（home 首页 / editor 编辑器）与全局弹窗挂载
@@ -193,7 +191,6 @@ CI 打包：推送 `v*` 标签会触发 [.github/workflows/release.yml](.github/
    ├─ symbols.generated.js    # 生成产物，勿手改
    ├─ exportSvg.js            # SVG 导出
    ├─ textChart.js            # 文字解纯转换模块（无 Vue 依赖，node 可直调）
-   ├─ updater.js              # 桌面端自动更新（检查 Releases → 应用内下载安装重启）
    ├─ tutorials.js            # 教程取图/取文（本机上传优先 → 内置静态资源）
    ├─ tutorialStore.js        # 教程图与文字说明的 IndexedDB 存储（含 zip 导入导出）
    ├─ selftest.js             # 页面自测脚本
