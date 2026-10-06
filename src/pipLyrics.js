@@ -36,7 +36,13 @@ export async function openPip() {
      否则浮窗启动 load() 读到的是旧档（进度/图面陈旧，还会反过来覆盖新进度） */
   flushPersist();
   const existing = await WW.getByLabel('lyric-pip');
-  if (existing) { await existing.setFocus(); await existing.show(); return; }
+  if (existing) {
+    pipWin = existing;
+    ui.pipOpen = true;
+    attachPipWinListeners(); // 复用路径同样要注册（focus/destroyed），见下
+    await existing.setFocus(); await existing.show();
+    return;
+  }
   /* 应用上次记住的位置和大小（LyricPip 在移动/缩放时防抖存入，物理像素）。
      不能塞进创建参数（x 字段不接受 Physical 实例，会反序列化失败导致窗口创建不出来）：
      先以 visible:false 创建，创建成功后再 setPosition/setSize/show。
@@ -64,7 +70,9 @@ export async function openPip() {
   pipWin = new WW('lyric-pip', {
     url: 'knitting-chart.html?widget=1',
     title: '织浮窗',
-    width: 420, height: 300, minWidth: 280, minHeight: 160,
+    width: 420, height: 300, minWidth: 280, minHeight: 40,
+    // minHeight 必须小于「标题栏+一行」的内容高（约 60-70px）：
+    // LyricPip.fitHeight 会把窗口高度钉到内容高，min 过大时会钳住留出底部空白
     decorations: false,           // 无系统边框（标题栏区域自绘 + 可拖拽）
     transparent: true,            // 窗口真透明（空闲态只留歌词文字）
     alwaysOnTop: true,            // 置顶于其他软件
@@ -84,6 +92,7 @@ export async function openPip() {
     } catch (e) {}
     await ensureOnScreen();
   });
+  attachPipWinListeners();
   /* 看门狗：无论 created/记忆/显示哪一环出问题，2.5s 后强制检查——
      不可见就 show，位置在显示器外就拉回主屏工作区居中。杜绝“开在看不见的地方” */
   setTimeout(async () => {
@@ -92,7 +101,16 @@ export async function openPip() {
       if (!(await pipWin.isVisible())) await ensureOnScreen(true);
     } catch (e) {}
   }, 2500);
-  /* 主浮窗获得焦点（被点击）时把教程承载窗重新顶到上面，保证教程窗始终在歌词窗之上 */
+  /* LyricPip 不在这里 mount：浮窗窗口自己加载 ?widget=1 页面，
+     main.js 的 widget 分支挂载组件（独立 WebView、独立 JS 上下文） */
+}
+
+/* pipWin 实例级监听：创建/复用两条路径都必须注册 ——
+   focus 时把教程承载窗重新顶上去（两个窗口都 alwaysOnTop，主浮窗获焦
+   会把它压到下面）；destroyed 时同步开关状态。此前只在创建路径注册，
+   重开复用的浮窗上没有 focus 监听 → 教程窗“偶尔”被压在主浮窗下方 */
+function attachPipWinListeners() {
+  if (!pipWin) return;
   pipWin.listen('tauri://focus', () => {
     if (popDocWin && popDocReady) {
       popDocWin.setAlwaysOnTop(false).then(() => popDocWin.setAlwaysOnTop(true)).catch(() => {});
@@ -102,8 +120,6 @@ export async function openPip() {
     pipWin = null;
     ui.pipOpen = false;
   });
-  /* LyricPip 不在这里 mount：浮窗窗口自己加载 ?widget=1 页面，
-     main.js 的 widget 分支挂载组件（独立 WebView、独立 JS 上下文） */
 }
 
 export async function closePip() {
@@ -155,14 +171,26 @@ async function ensurePopDoc() {
   const WW = tauriWebviewWindow();
   if (!WW) return null;
   const T = window.__TAURI__;
-  popDocWin = new WW('lyric-pop', {
-    url: 'knitting-chart.html?popdoc=1',
-    title: '织法教程',
-    width: 660, height: 320,
-    decorations: false, transparent: true, alwaysOnTop: true,
-    skipTaskbar: true, shadow: false, resizable: false, focus: false, visible: false,
-  });
-  popDocWin.once('tauri://destroyed', () => { popDocWin = null; popDocReady = false; });
+  /* 复用已存在的承载窗：承载窗只被隐藏、从不销毁，旧浮窗关闭后再开新浮窗时，
+     label 仍被旧窗占用——重新 new 会失败，且旧窗不会再发 lp-pop-ready。
+     注意复用也要把下面的事件监听注册全（lp-pop-size 等在本上下文里还没有），
+     否则量完高度没人定位/显示，浮窗依旧出不来 */
+  let win = null;
+  try { win = await WW.getByLabel('lyric-pop'); } catch (e) {}
+  if (win) {
+    popDocWin = win;
+    popDocReady = true; // 旧窗 mount 时就发过 ready，直接按就绪处理
+  } else {
+    popDocWin = new WW('lyric-pop', {
+      url: 'knitting-chart.html?popdoc=1',
+      title: '织法教程',
+      width: 660, height: 320,
+      decorations: false, transparent: true, alwaysOnTop: true,
+      skipTaskbar: true, shadow: false, resizable: false, focus: false, visible: false,
+    });
+    popDocWin.once('tauri://error', () => { popDocWin = null; popDocReady = false; });
+    popDocWin.once('tauri://destroyed', () => { popDocWin = null; popDocReady = false; });
+  }
   await T.event.listen('lp-pop-ready', () => {
     popDocReady = true;
     if (pendingPop) { const p = pendingPop; pendingPop = null; T.event.emit('lp-pop-data', p); }
@@ -184,14 +212,24 @@ async function placeTauriPop(cardH) {
   const x = Math.round(pos.x + (popAnchor.x - POP_PAD) * sf);
   const cardTop = popAnchor.above ? popAnchor.y0 - cardH : popAnchor.y0;
   const y = Math.round(pos.y + (cardTop - POP_PAD) * sf);
+  const w = Math.round((popAnchor.W + POP_PAD * 2) * sf);
+  const h = Math.round((cardH + POP_PAD * 2) * sf);
+  /* PopDoc 会回报两次高度（图加载完 + 500ms 补量），placeTauriPop 因此被调多次。
+     对已显示的窗口重复 show()/alwaysOnTop 摘除恢复会肉眼可见地闪 ——
+     位置尺寸都没变就整段跳过；z 序校正只在「隐藏 → 显示」的那一次做 */
+  const wasVisible = await popDocWin.isVisible();
+  if (wasVisible) {
+    const [cp, cs] = await Promise.all([popDocWin.outerPosition(), popDocWin.outerSize()]);
+    if (cp.x === x && cp.y === y && cs.width === w && cs.height === h) return;
+  }
   await popDocWin.setPosition(new T.window.PhysicalPosition(x, y));
-  await popDocWin.setSize(new T.window.PhysicalSize(
-    Math.round((popAnchor.W + POP_PAD * 2) * sf),
-    Math.round((cardH + POP_PAD * 2) * sf)));
+  await popDocWin.setSize(new T.window.PhysicalSize(w, h));
   await popDocWin.show();
-  /* 保证教程窗压在歌词浮窗之上（两者都 alwaysOnTop，相对层级会被焦点变化打乱） */
-  await popDocWin.setAlwaysOnTop(false);
-  await popDocWin.setAlwaysOnTop(true);
+  if (!wasVisible) {
+    /* 保证教程窗压在歌词浮窗之上（两者都 alwaysOnTop，相对层级会被焦点变化打乱） */
+    await popDocWin.setAlwaysOnTop(false);
+    await popDocWin.setAlwaysOnTop(true);
+  }
 }
 export async function showTauriPop(payload, anchor) {
   popAnchor = anchor;

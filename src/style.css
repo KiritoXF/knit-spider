@@ -948,18 +948,19 @@ text { user-select: none; }
    尺寸/位置由主浮窗按内容回报计算；空白区域全透明不挡桌面 ---- */
 .lp-popdoc { margin: 0; padding: 14px; background: transparent; overflow: hidden; }
 .lp-popdoc .tc-pop { position: static; width: 100%; }
-/* 歌词区：当前行上下各 2 行，居中排版（无滚动条） */
+/* 歌词区：只有当前一行，顶对齐贴住标题栏 —— 若用居中，
+   窗口被拉高后文字悬浮在中间，上下留白随窗口高度走（观感是“间距过大”） */
 .lp-lyrics {
   flex: 1; min-height: 0; display: flex; flex-direction: column;
-  justify-content: center; gap: 2px; padding: 8px 12px; overflow: hidden;
+  justify-content: flex-start; gap: 2px; padding: 2px 12px; overflow: hidden;
   position: relative;
 }
 .lp-gen { position: absolute; } /* 复用 .tcm-gen 的过渡样式，铺满歌词区 */
 .lp-empty { margin: 0; font-size: 12px; color: var(--acc-ink-3); text-align: center; }
 .lp-row {
   display: flex; align-items: baseline; gap: 7px;
-  padding: 3px 8px; border-radius: 8px;
-  color: var(--acc-ink-3); font-size: 12px; line-height: 1.6;
+  padding: 1px 8px; border-radius: 8px;
+  color: var(--acc-ink-3); font-size: 12px; line-height: 1.5;
   transition: background-color .12s, color .12s, font-size .12s;
 }
 .lp-row .lp-txt b { font-weight: 700; }
@@ -977,7 +978,7 @@ text { user-select: none; }
    只有颜色和描边变化 —— 否则空闲/悬停切换时文字会重新换行，观感很差 */
 .lp-row-done { text-decoration: line-through; text-decoration-color: var(--acc-300); opacity: .75; }
 .lp-row-cur {
-  background: var(--acc-15); color: var(--acc-ink); font-size: 15px; line-height: 1.6; font-weight: 700;
+  background: var(--acc-15); color: var(--acc-ink); font-size: 15px; line-height: 1.5; font-weight: 700;
 }
 .lp-row-cur .lp-txt b { color: var(--acc-700); }
 .lp-row-cur .lp-rn { color: var(--acc-700); }

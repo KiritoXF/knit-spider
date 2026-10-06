@@ -4,9 +4,9 @@ import {
   state, labelFor, setColLabel, applyAt, commitBorder,
   fits, toggleHighlight, getSym, pasteAt, clipSel, clipBoard, contentRev,
 } from '../store.js';
+import { ui, appPrompt } from '../ui.js';
 import { CELL, symDataUrl, symbolInnerMarkup } from '../util.js';
 import { createTileLayer } from '../tileLayer.js';
-import { ui } from '../ui.js';
 
 const svgEl = ref(null);
 const symLayerEl = ref(null);
@@ -202,10 +202,14 @@ function cellFromPoint(pt) {
   return { c: Math.floor(pt.x), r: rows - Math.floor(pt.y) };
 }
 
-function editColLabel(c) {
-  const v = prompt(`第 ${c + 1} 列的标号：\n可输入任意数字或文字；留空 = 不显示`, labelFor(c));
+async function editColLabel(c) {
+  const v = await appPrompt({
+    title: '列标号',
+    message: `第 ${c + 1} 列的标号：可输入任意数字或文字；留空 = 不显示`,
+    value: labelFor(c),
+  });
   if (v === null) return;
-  setColLabel(c, v);
+  setColLabel(c, v.trim());
 }
 
 function onPointerDown(e) {
@@ -346,11 +350,10 @@ const pasteGhost = computed(() => {
     let cc = rp.col, rr = rp.row;
     if (ui.mirrorH) cc = cb.w - cc - d.w;
     if (ui.mirrorV) rr = cb.h - rr - d.h;
-    const fx = ui.mirrorH ? !rp.fx : !!rp.fx;
-    const fy = ui.mirrorV ? !rp.fy : !!rp.fy;
+    /* 镜像粘贴只翻转位置：符号与 fx/fy 照原样预览（与 pasteAt 同源） */
     let inner = symbolInnerMarkup(d);
-    if (fx) inner = `<g transform="translate(${d.w},0) scale(-1,1)">${inner}</g>`;
-    if (fy) inner = `<g transform="translate(0,${d.h}) scale(1,-1)">${inner}</g>`;
+    if (rp.fx) inner = `<g transform="translate(${d.w},0) scale(-1,1)">${inner}</g>`;
+    if (rp.fy) inner = `<g transform="translate(0,${d.h}) scale(1,-1)">${inner}</g>`;
     syms.push({ x: x0 + cc, y: y0 + (cb.h - rr - d.h), w: d.w, h: d.h, inner });
   }
   for (const b of (cb.borders || [])) {
@@ -467,6 +470,14 @@ onUnmounted(() => {
         :height="Math.abs(clipSel.rect.r1 - clipSel.rect.r0) + 1"
         fill="#3b82f6" fill-opacity="0.08" stroke="#3b82f6"
         stroke-width="0.06" stroke-dasharray="0.15 0.1"/>
+      <!-- 框选尺寸提示：当前选中 N 行 × M 列 -->
+      <text v-if="clipSel.rect" pointer-events="none"
+        :x="Math.min(clipSel.rect.c0, clipSel.rect.c1) + 0.05"
+        :y="rowTopY(Math.max(clipSel.rect.r0, clipSel.rect.r1)) - 0.12"
+        font-size="0.36" font-weight="bold" fill="#1d4ed8"
+        stroke="#fff" stroke-width="0.12" style="paint-order: stroke">
+        {{ Math.abs(clipSel.rect.r1 - clipSel.rect.r0) + 1 }}行 × {{ Math.abs(clipSel.rect.c1 - clipSel.rect.c0) + 1 }}列
+      </text>
 
       <!-- 放置预览 ghost -->
       <rect id="ghost" pointer-events="none"

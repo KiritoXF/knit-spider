@@ -249,10 +249,38 @@ if (isTauri) {
   onPopHover(() => { popHovered.value = true; clearTimeout(popTimer); });
   onPopLeave(() => { popHovered.value = false; });
 }
+/* ---- 窗口高度自适应内容 ----
+   底部大块空白来自窗口高度（创建默认 300px / 上次记忆的 bounds）远大于
+   「标题栏 + 一行文字」的实际内容高。挂载后把外窗高度钉到内容高（宽度不动）。
+   与 pipLyrics.openPip 的记忆 bounds 恢复存在时序竞态，这里轮询逼近直到
+   窗口高 == 内容高（文字解是异步生成的，行 DOM 可能晚几帧出现，靠轮询兜住） */
+async function fitHeight() {
+  const T = props.win.__TAURI__;
+  try {
+    const cur = T.window.getCurrentWindow();
+    const sf = await cur.scaleFactor();
+    const contentH = () => {
+      const head = document.querySelector('.lp-head');
+      const row = document.querySelector('.lp-row');
+      if (!head) return 0;
+      // 4 = .lp-lyrics 的上下 padding（2px × 2）
+      return Math.ceil(((row ? row.offsetHeight : 22) + 4 + head.offsetHeight) * sf);
+    };
+    for (let i = 0; i < 30; i++) {
+      const ch = contentH();
+      if (!ch) { await new Promise(r => setTimeout(r, 100)); continue; }
+      const size = await cur.outerSize();
+      if (Math.abs(size.height - ch) <= 2) return; // 已贴合（含 pipLyrics 抢先设置后我们再校正）
+      await cur.setSize(new T.window.PhysicalSize(size.width, ch));
+      await new Promise(r => setTimeout(r, 100));
+    }
+  } catch (e) { /* 拿不到窗口对象就保持原尺寸 */ }
+}
 onMounted(async () => {
   if (!isTauri) return;
   try { await props.win.__TAURI__.window.getCurrentWindow().setIgnoreCursorEvents(true); } catch (e) {}
   pollCursor();
+  fitHeight();
 });
 onUnmounted(() => {
   clearTimeout(popTimer);
