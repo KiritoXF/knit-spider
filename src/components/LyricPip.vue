@@ -276,6 +276,17 @@ async function fitHeight() {
     }
   } catch (e) { /* 拿不到窗口对象就保持原尺寸 */ }
 }
+/* fitHeight 只在 mount 时量一次高度，但当前行会随织进行切换：新行文字更长时
+   折成 3 行而窗口还钉在 2 行的高度，超出部分被 .lp-lyrics 的 overflow:hidden 裁掉
+   （表现为“这行应该有三行文字只显示两行”）。所以 view 变化 / 字体加载完成后都要重贴 */
+let fitting = false;
+async function refit() {
+  if (fitting || !isTauri) return;
+  fitting = true;
+  try { await fitHeight(); } finally { fitting = false; }
+}
+watch(view, () => { setTimeout(refit, 300); }); // 略等字号 .12s 过渡结束再量
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(refit);
 onMounted(async () => {
   if (!isTauri) return;
   try { await props.win.__TAURI__.window.getCurrentWindow().setIgnoreCursorEvents(true); } catch (e) {}

@@ -992,7 +992,11 @@ text { user-select: none; }
 .lp-btn-main { flex: none; background: var(--acc-700); border-color: var(--acc-700); color: #fff; }
 .lp-btn-main:hover:not(:disabled) { background: var(--acc-800); border-color: var(--acc-800); color: #fff; }
 .lp-btn-main:active:not(:disabled) { transform: scale(.98); }
-/* 浮窗内教程 popover：图 + 文字说明同处一个滚动区域（imgbox 自身不再滚动） */
+/* 浮窗内教程 popover：图 + 文字说明完整展示不滚动（窗口按内容自适应高度）。
+   文字说明必须一并放开 max-height，否则长文被全局 110px 上限截断；
+   body 的内联 max-height（imgH 上限）也需 !important 覆盖，图 + 长文超限时同理 */
 .tc-pop-body { overflow-y: auto; }
 .tc-pop-body .tc-pop-imgbox { max-height: none; overflow: visible; }
+.lp-popdoc .tc-pop-body { max-height: none !important; overflow: visible; }
+.lp-popdoc .tc-pop-text { max-height: none; overflow: visible; }
 

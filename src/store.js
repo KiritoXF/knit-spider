@@ -335,7 +335,7 @@ export function deleteSelection() {
    （旧版「对象树深拷贝快照」曾致切回大图解 8-10s 长任务，勿回退） */
 let history = [];      // 每项 = 变更字段对 {字段: {from, to}}，仅含变化字段
 let hIndex = -1;
-const UNDO_MAX = 30;
+const UNDO_MAX = 100;
 let lastRefs = null;   // 上次 save 时的容器引用（变更检测基线）
 let lastFp = '';
 
