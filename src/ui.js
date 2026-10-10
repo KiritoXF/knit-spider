@@ -19,16 +19,17 @@ export const ui = reactive({
   toasts: [],        // 轻提示队列 [{id,msg,tone}] tone: 'ok'|'warn'|'info'
 });
 
-/* ---- 轻提示 toast：右下角，2.6s 自动消失；同文案同语气不叠加（刷新在屏时间） ---- */
+/* ---- 轻提示 toast：右下角，默认 2.6s 自动消失；同文案同语气不叠加（刷新在屏时间）
+   ms 可自定义驻留时长（数据安全类警告用，给足够阅读时间） ---- */
 let toastSeq = 0;
-export function toast(msg, tone = 'info') {
+export function toast(msg, tone = 'info', ms = 2600) {
   const dup = ui.toasts.find(t => t.msg === msg && t.tone === tone);
   if (dup) {
     clearTimeout(dup._timer); // 已在屏：只重置消失倒计时，不重复弹
     dup._timer = setTimeout(() => {
       const i = ui.toasts.indexOf(dup);
       if (i >= 0) ui.toasts.splice(i, 1);
-    }, 2600);
+    }, ms);
     return;
   }
   const id = ++toastSeq;
@@ -36,7 +37,7 @@ export function toast(msg, tone = 'info') {
   item._timer = setTimeout(() => {
     const i = ui.toasts.findIndex(t => t.id === id);
     if (i >= 0) ui.toasts.splice(i, 1);
-  }, 2600);
+  }, ms);
   ui.toasts.push(item);
 }
 

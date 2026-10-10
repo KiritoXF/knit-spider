@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
-  state, renameWork, deleteWork, switchWork, switchChart,
+  state, renameWork, deleteWork, switchWork, switchChart, saveJson,
   THEMES, themeName, setTheme,
 } from '../store.js';
 import { ui, withLoading, appConfirm, appPrompt } from '../ui.js';
@@ -36,6 +36,8 @@ async function onDelete(w) {
   });
   if (ok) withLoading(() => deleteWork(w.id));
 }
+/* 与作品页「文件 → 存档作品」相同：导出该作品的整包 zip（全部图解 + 教程图） */
+function onSave(w) { saveJson(w); }
 function fmtTime(t) {
   if (!t) return '';
   const d = new Date(t), now = new Date();
@@ -59,6 +61,39 @@ function onDocClickLinks(e) {
 }
 onMounted(() => document.addEventListener('click', onDocClickLinks));
 onUnmounted(() => document.removeEventListener('click', onDocClickLinks));
+
+/* ---- 页脚：本地存储占用指示 ----
+   存档存在浏览器 localStorage，没有 API 能查到真实上限（各浏览器 5 MB / 10 MB
+   不等），所以按 UTF-16 每字符 2 字节统计实际占用，并以最小的常见上限 5 MB 作
+   参考线。越过阈值即提示容量可能触顶、新图解可能保存失败，引导导出 zip 存档 */
+const STORAGE_REF = 5 * 1024 * 1024;   // 参考上限：取常见值里最小的 5 MB
+const usedBytes = ref(0);
+const usedText = ref('0 KB');
+const storageLevel = computed(() => {
+  if (usedBytes.value >= STORAGE_REF * 0.9) return 'danger';
+  if (usedBytes.value >= STORAGE_REF * 0.7) return 'warn';
+  return 'ok';
+});
+const storageTip = computed(() =>
+  `本机存档占用 ${usedText.value}。数据保存在浏览器本地（localStorage），`
+  + `容量上限因浏览器而异（常见 5 MB，部分 10 MB），超出后新的图解在刷新后会丢失。`
+  + `建议用作品页「文件 → 存档作品」导出 zip 备份到本地。`);
+function calcStorage() {
+  let chars = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      chars += k.length + (localStorage.getItem(k) || '').length;
+    }
+  } catch (e) { return; }
+  usedBytes.value = chars * 2;
+  usedText.value = usedBytes.value < 1024 * 1024
+    ? (usedBytes.value / 1024).toFixed(1) + ' KB'
+    : (usedBytes.value / (1024 * 1024)).toFixed(2) + ' MB';
+}
+let storageTimer = 0;
+onMounted(() => { calcStorage(); storageTimer = setInterval(calcStorage, 5000); });
+onUnmounted(() => clearInterval(storageTimer));
 </script>
 
 <template>
@@ -123,6 +158,13 @@ onUnmounted(() => document.removeEventListener('click', onDocClickLinks));
             </div>
           </div>
           <div class="flex gap-1 flex-none" @click.stop>
+            <button class="wc-btn" title="存档作品（整包 zip：全部图解＋教程图）" @click="onSave(w)">
+              <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>
+              </svg>
+            </button>
             <button class="wc-btn" title="重命名" @click="onRename(w)">
               <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -156,6 +198,15 @@ onUnmounted(() => document.removeEventListener('click', onDocClickLinks));
       <span class="home-foot-sep" aria-hidden="true">·</span>
       <span>小红书：
         <a href="https://www.xiaohongshu.com/user/profile/60e969a4000000000101e9e0" target="_blank" rel="noopener noreferrer">momo</a></span>
+      <span class="home-foot-cache" :class="'hfc-' + storageLevel" :title="storageTip">
+        <svg v-if="storageLevel !== 'ok'" class="hfc-ico" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+          <path d="M12 9v4"/><path d="M12 17h.01"/>
+        </svg>
+        <span>本地存储 {{ usedText }}</span>
+        <span v-if="storageLevel !== 'ok'" class="hfc-warn">接近上限，建议导出存档备份</span>
+      </span>
     </footer>
   </div>
 </template>

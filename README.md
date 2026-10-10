@@ -15,7 +15,7 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 ![Home page — project manager](docs/images/home.png)
 
 - Two-level structure: one project can hold multiple charts (e.g. body, sleeves, neckline)
-- Home page (project manager): card view with chart count and last-edited time; click a card to open the project, click a chart chip to jump straight to that chart; rename / delete right on the card; the last tile in the grid is "＋ New project"; the footer holds the copyright and project link
+- Home page (project manager): card view with chart count and last-edited time; click a card to open the project, click a chart chip to jump straight to that chart; archive-download / rename / delete right on the card; the last tile in the grid is "＋ New project"; the footer keeps the copyright and project link centered, with a live local-storage usage indicator on the right
 - Chart tabs: click to switch, double-click to rename inline, delete, create (auto-named "Chart N")
 - Chart locking: one-click lock from the tab bar. When locked, all editing operations (place / erase / paste / annotate / grid resize / undo-redo) are blocked to protect finished charts; a lock icon shows on the tab and the state is saved with the archive
 - Last-changed time: shown permanently at the right end of the top bar. Chart-content operations (place / erase / border / annotation / column labels / grid / undo-redo) update it; non-content operations (lock/unlock, rename, favorite) do not. Saved with the archive
@@ -77,11 +77,12 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 
 ### Save & Export
 - Archive project: packs the whole project as a zip (`ProjectName.zip`) containing `work.json` (v2 format, all charts) and `tutorials/` (local tutorial images and text notes as-is)
+- One-click archive from the home page: the download button on a project card is equivalent to "File → Archive project" and exports that project's zip directly, without opening it first
 - Load: accepts zip project bundles and JSON archives; importing always appends, never overwrites — a project bundle becomes a new project, a single chart is appended as a new chart
 - Export chart: current chart only, as JSON (`ProjectName_ChartName.json`, v1-compatible format for older versions)
 - SVG export: vector output (`ProjectName_ChartName.svg`, with an embedded `<title>`) for printing or sharing
 - Saving uses the File System Access API to pop the system "Save As" dialog and can overwrite existing files; unsupported browsers fall back to a download
-- Edits are auto-saved to browser localStorage
+- Edits are auto-saved to browser localStorage; the capacity limit varies by browser (commonly 5 MB), and the home footer shows usage and prompts for an archive backup as it approaches the limit
 
 ### Desktop App (Tauri, Windows)
 
@@ -157,6 +158,7 @@ CI packaging: pushing a `v*` tag triggers [.github/workflows/release.yml](.githu
 ### Data & Archive Formats
 
 - Autosave key `knitChartProto1` (localStorage)
+- localStorage capacity is limited (commonly 5 MB, 10 MB in some browsers) and new content simply cannot be saved once it is exceeded — the home footer shows live usage and turns amber/red near the limit; tutorial images and text notes live in IndexedDB and do not consume this quota
 - Project bundle zip: `work.json` (`{version:2, works:[...]}`) + `tutorials/` (tutorial images as-is + `<symbol-id>.txt` text notes)
 - Tutorial images and text notes are stored separately in IndexedDB (database `knitChartTutor`), not in localStorage
 - The custom symbol library and the "removed built-in symbols" list are **global** (not per project) and travel with the archive and undo history; deleting a custom symbol cleans up references in every project
@@ -235,3 +237,4 @@ npm run gen-symbols   # regenerate src/symbols.generated.js only
 - The home page project grid `.home-grid` uses `align-content: start`; pinning the footer to the bottom is left to `.home-foot`'s `margin-top:auto` (giving the grid `flex:1 0 auto` stretches the cards)
 - Hover-only badges (such as `.sym-remove`) must sit **inside** the card; placed on the card's outer edge they get clipped by the scroll container's `overflow`
 - Self-test `runSelfTest`: switch to the editor view and tick first (the canvas DOM otherwise doesn't exist), and call `save()` at the end to leave a clean state; symbol-layer assertions use pixel sampling (the `window.__symLayer` hook + `blockHasInk`)
+- Archive write lock (store.js): same-origin windows share localStorage, so a heartbeat-based ownership lock ensures only one main window can write at a time (floating/holder windows never take part). Deciding "is there really a second window?" must live in the 3-second `ownerWatch` poll — a stale lock from an unload has a frozen timestamp and gets taken over once its TTL expires, while a real window keeps refreshing it. Keep the check out of `ownerAcquire` (only called when persisting): an idle second window would never reach it and the case would be missed

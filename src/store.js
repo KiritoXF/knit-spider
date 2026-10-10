@@ -544,6 +544,7 @@ const OWNER_KEY = LS_KEY + '.owner';
 const OWNER_TTL = 8000;   // 心跳超过此时长视为持有者已死，可接管
 let ownerId = Math.random().toString(36).slice(2);
 let ownerWarned = false;
+let ownerFirstSeen = 0;   // 连续看到别人持锁的起始时刻
 function ownerFreshOther() {
   try {
     const o = JSON.parse(localStorage.getItem(OWNER_KEY));
@@ -554,22 +555,30 @@ function ownerHeartbeat() {
   try { localStorage.setItem(OWNER_KEY, JSON.stringify({ id: ownerId, t: Date.now() })); } catch (e) {}
 }
 function ownerRelease() { try { localStorage.removeItem(OWNER_KEY); } catch (e) {} }
+function ownerWarn() {
+  if (ownerWarned) return;
+  ownerWarned = true;
+  try {
+    toast('检测到另一个窗口正在使用同一存档（如浏览器里打开的 localhost 页面），'
+      + '为避免互相覆盖，本窗口暂停自动保存；请关闭多余窗口', 'warn', 20000);
+  } catch (e) {}
+}
 function ownerAcquire() { // 返回 true=获得写权
-  if (!ownerFreshOther()) { ownerHeartbeat(); return true; }
-  if (!ownerWarned) {
-    ownerWarned = true;
-    try {
-      toast('检测到另一个窗口正在使用同一存档（如浏览器里打开的 localhost 页面），'
-        + '为避免互相覆盖，本窗口暂停自动保存；请关闭多余窗口', 'warn');
-    } catch (e) {}
-  }
-  return false;
+  if (ownerFreshOther()) return false; // 静默让位；是否真有第二窗口由 ownerWatch 判定
+  ownerHeartbeat(); return true;
 }
-if (CAN_PERSIST && typeof window !== 'undefined') {
-  /* 只有「锁空闲/过期/属于自己」时才续期：非持有者若也无脑续期，
-     会把持有者的锁覆盖成自己的，两边互抢导致双双停写 */
-  setInterval(() => { if (!ownerFreshOther()) ownerHeartbeat(); }, 3000);
+/* 每 3s 一次的锁轮询——检测必须放这里而不是 ownerAcquire：后者只在落盘时才
+   被调用，第二个窗口若不编辑就永远走不到，会漏报。
+   - 无人持锁：续期/接管（非持有者若无脑续期会覆盖持有者的锁，两边互抢双双停写）
+   - 有人持锁：连续新鲜超过 TTL 即认定活的第二窗口。卸载残留锁（刷新/关闭时
+     释放锁之后又被 visibilitychange 写回）时间戳冻结，最多 OWNER_TTL 就过期，
+     绝撑不到 TTL+1s，所以单窗口刷新/重启不会误报；真窗口每 3s 心跳，必然命中 */
+function ownerWatch() {
+  if (!ownerFreshOther()) { ownerFirstSeen = 0; ownerHeartbeat(); return; }
+  if (!ownerFirstSeen) ownerFirstSeen = Date.now();
+  if (!ownerWarned && Date.now() - ownerFirstSeen > OWNER_TTL + 1000) ownerWarn();
 }
+if (CAN_PERSIST && typeof window !== 'undefined') setInterval(ownerWatch, 3000);
 function forcePersist() {
   if (!CAN_PERSIST) return;
   if (persistTimer) { clearTimeout(persistTimer); persistTimer = 0; }
@@ -602,11 +611,17 @@ function schedulePersist() {
   }
 }
 if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    forcePersist();   // 最后一次落盘（本人持锁，必然放行）
-    ownerRelease();   // 随即释放锁：同窗口刷新/重启后新页面可立即接管
-  });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) forcePersist(); });
+  let unloading = false;
+window.addEventListener('beforeunload', () => {
+  unloading = true;
+  forcePersist();   // 最后一次落盘（本人持锁，必然放行）
+  ownerRelease();   // 随即释放锁：同窗口刷新/重启后新页面可立即接管
+});
+window.addEventListener('pagehide', () => { unloading = true; ownerRelease(); }); // 兜底：beforeunload 可能被跳过
+/* 卸载流程里 visibilitychange(hidden) 可能在释放锁之后才触发，
+   不拦的话会 ownerAcquire 又写回一把旧 id 的新鲜锁（残留锁的来源之一）；
+   即使漏拦，ownerWatch 的时间戳冻结判定也不会把它误认成活窗口 */
+document.addEventListener('visibilitychange', () => { if (document.hidden && !unloading) forcePersist(); });
 }
 
 export function save(definite = false) {
@@ -798,10 +813,12 @@ export function serializeChart() {
   };
 }
 
-/* v2：整个作品（含全部图解） */
-export function serializeWork() {
-  syncActiveChart();
-  const w = activeWork();
+/* v2：整个作品（含全部图解）。w0 省略时取当前活动作品（供首页卡片导出指定作品）。
+   非活动作品的树在 switchWork 切走前已由 syncActiveChart 提交，故同样是最新的；
+   只有活动作品需要现刷编辑器缓冲 */
+export function serializeWork(w0) {
+  const w = w0 || activeWork();
+  if (w.id === state.activeWorkId) syncActiveChart();
   return {
     app: 'knitting-chart', version: 2, savedAt: new Date().toISOString(),
     works: [{ name: w.name, charts: JSON.parse(JSON.stringify(w.charts)) }],
@@ -872,10 +889,11 @@ async function writeFileBlob(data, name, desc) {
   anchorDownload(name, data, 'application/zip');
 }
 
-/* 存档：导出整个作品为 zip（work.json = v2 作品树 + tutorials/ = 用户上传的教程图原样） */
-export async function saveJson() {
-  const w = activeWork();
-  const u8 = await buildWorkZip();
+/* 存档：导出整个作品为 zip（work.json = v2 作品树 + tutorials/ = 用户上传的教程图原样）。
+   w0 省略时导出当前活动作品；首页卡片可传入指定作品 */
+export async function saveJson(w0) {
+  const w = w0 || activeWork();
+  const u8 = await buildWorkZip(w);
   await writeFileBlob(new Blob([u8], { type: 'application/zip' }),
     sanitizeFileName(w ? w.name : 'work') + '.zip', '作品存档 (zip)');
 }
@@ -883,8 +901,8 @@ export async function saveJson() {
 /* zip 打包：work.json（v2 作品树，与旧 JSON 存档内容一致）+ tutorials/<文件名>。
    图片按 符号id.<图片扩展名>，文字按 符号id.txt，sid 唯一不会互相覆盖。
    供 saveJson 与自测使用；纯数据组装，不弹对话框 */
-export async function buildWorkZip() {
-  const files = { 'work.json': strToU8(JSON.stringify(serializeWork(), null, 2)) };
+export async function buildWorkZip(w0) {
+  const files = { 'work.json': strToU8(JSON.stringify(serializeWork(w0), null, 2)) };
   const EXT = { 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif' };
   for (const t of await tutorialU8Entries()) {
     if (!t.u8 || !t.u8.length) continue;
