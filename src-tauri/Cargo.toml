@@ -1,6 +1,6 @@
 [package]
 name = "knitchart"
-version = "0.2.6"
+version = "0.2.7"
 description = "蜘蛛织毛线 —— 棒针图解编辑器（桌面端）"
 edition = "2021"
 
