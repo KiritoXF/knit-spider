@@ -1139,7 +1139,13 @@ export function copySelection() {
     .map(b => ({ col: b.col - col0, row: b.row - row0, w: b.w, h: b.h }));
   const annotations = state.annotations.filter(a => inside(a.col, a.row, a.w, a.h))
     .map(a => ({ col: a.col - col0, row: a.row - row0, w: a.w, h: a.h, text: a.text }));
-  if (!placements.length && !borders.length && !annotations.length) { flashInfo('选区内没有可复制的内容'); return 0; }
+  /* “空白”格也有意义（表示上针），所以复制允许整块空白：
+     粘贴时用空白清除目标区域的 noSt 等符号 */
+  if (!placements.length && !borders.length && !annotations.length) {
+    clipBoard.data = { w: col1 - col0 + 1, h: row1 - row0 + 1, placements: [], borders: [], annotations: [] };
+    flashInfo('已复制空白区域，粘贴时可清除目标处的符号');
+    return 1;
+  }
   clipBoard.data = { w: col1 - col0 + 1, h: row1 - row0 + 1, placements, borders, annotations };
   const parts = [`${placements.length} 个符号`];
   if (borders.length) parts.push(`${borders.length} 个边框`);
@@ -1156,12 +1162,14 @@ export function pasteAt(c, r) {
   const cb = clipBoard.data;
   if (!cb || guardLocked()) return;
   const mH = !!ui.mirrorH, mV = !!ui.mirrorV;
-  /* 先算出所有能落位的符号，并把它们覆盖的格收进 Set；
-     再用一趟遍历剔掉与这些格相交的旧符号、一次性拼上新符号。
-     旧实现对每个新符号都 filter 一遍全数组（O(放置数×粘贴数)），
-     上万放置的图解粘贴大块时会卡住 */
+  /* 粘贴是整块替换：复制块里的“空白”格表示上针，同样有意义，
+     落进粘贴足迹的旧符号即使不与任何新符号重叠也要清掉，
+     这样空白才能真正覆盖目标处的 noSt 等符号。
+     之前只剔被新符号盖住的旧符号，空白格上的 noSt 被跳过了 */
+  const fc1 = c + cb.w - 1, fr1 = r + cb.h - 1;
+  const inFoot = (col, row, w, h) =>
+    col <= fc1 && col + w - 1 >= c && row <= fr1 && row + h - 1 >= r;
   const add = [];
-  let cover = null;
   for (const rp of cb.placements) {
     const d = getSym(rp.sym);
     if (!d) continue;
@@ -1172,26 +1180,20 @@ export function pasteAt(c, r) {
     if (rp.fy) q.fy = true;
     if (!fits(col, row, d.w, d.h)) continue;
     add.push(q);
-    if (!cover) cover = new Set();
-    for (let i = 0; i < d.w; i++)
-      for (let j = 0; j < d.h; j++) cover.add((col + i) * 10000 + (row + j));
   }
   let any = false;
+  const keep = [];
+  const bb = [c, r, c, r]; // 粘贴块足迹 ∪ 被清除旧符号足迹（画布脏区）
+  for (const p of toRaw(state.placements)) {
+    if (inFoot(p.col, p.row, p.w, p.h)) {
+      if (p.col < bb[0]) bb[0] = p.col;
+      if (p.row < bb[1]) bb[1] = p.row;
+      if (p.col + p.w - 1 > bb[2]) bb[2] = p.col + p.w - 1;
+      if (p.row + p.h - 1 > bb[3]) bb[3] = p.row + p.h - 1;
+      any = true;
+    } else keep.push(p);
+  }
   if (add.length) {
-    const keep = [];
-    const bb = [c, r, c, r]; // 粘贴块足迹 ∪ 被覆盖旧符号足迹（画布脏区）
-    for (const p of toRaw(state.placements)) {
-      let clash = false;
-      for (let i = 0; i < p.w && !clash; i++)
-        for (let j = 0; j < p.h; j++)
-          if (cover.has((p.col + i) * 10000 + (p.row + j))) { clash = true; break; }
-      if (clash) {
-        if (p.col < bb[0]) bb[0] = p.col;
-        if (p.row < bb[1]) bb[1] = p.row;
-        if (p.col + p.w - 1 > bb[2]) bb[2] = p.col + p.w - 1;
-        if (p.row + p.h - 1 > bb[3]) bb[3] = p.row + p.h - 1;
-      } else keep.push(p);
-    }
     for (const q of add) {
       if (q.col < bb[0]) bb[0] = q.col;
       if (q.row < bb[1]) bb[1] = q.row;
@@ -1199,10 +1201,12 @@ export function pasteAt(c, r) {
       if (q.row + q.h - 1 > bb[3]) bb[3] = q.row + q.h - 1;
     }
     state.placements = keep.concat(add);
-    markCanvasDirty(bb[0], bb[1], bb[2], bb[3]);
     any = true;
+  }
+  if (any) {
+    markCanvasDirty(bb[0], bb[1], bb[2], bb[3]);
   } else {
-    markCanvasNone(); // 没有符号落位（越界或剪贴板只有边框/标注），符号位图无涉
+    markCanvasNone(); // 没有变更（越界或剪贴板只有边框/标注），符号位图无涉
   }
   for (const rb of (cb.borders || [])) { // 旧剪贴板数据无 borders，兜底
     const col = c + (mH ? cb.w - rb.col - rb.w : rb.col);

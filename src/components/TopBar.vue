@@ -99,7 +99,7 @@ async function onClear() {
   closeMenu();
   const ok = await appConfirm({
     title: '清空图解',
-    message: '清空当前图解的全部符号和粗边框？\n（自定义符号与列号设置保留）',
+    message: '清空当前图解的全部符号和粗边框？\n',
     okText: '清空', danger: true,
   });
   if (ok) clearAll();
@@ -342,12 +342,11 @@ async function onClear() {
             </span>
             <span class="tb-menu-txt">
               <span class="tb-menu-title">更新日志</span>
-              <span class="tb-menu-desc">每次更新做了什么</span>
             </span>
           </button>
           <div class="tb-menu-sep"></div>
           <button id="btnClear" class="tb-menu-item tb-menu-danger" role="menuitem"
-            title="清空当前图解的全部符号和粗边框（自定义符号与列号设置保留）" @click="onClear">
+            title="清空当前图解的全部符号和粗边框" @click="onClear">
             <span class="tb-mi-ico ico-red">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
