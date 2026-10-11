@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-A fully client-side knitting chart editor for hand knitters: draw grids, place stitch symbols, marquee-select and copy, annotate regions, turn charts into row-by-row written instructions, and attach a how-to knit tutorial (image or text notes) to every stitch — with archiving and export built in. The build output is a single self-contained HTML file: double-click to run offline, no internet required.
+A fully client-side knitting chart editor for hand knitters. Its signature feature is **written instructions**: turn a chart into row-by-row text with a tutorial popover, so you can knit while binge-watching instead of staring at the chart. Also includes grid drawing, stitch symbol placement, marquee select and copy, region annotations, and per-stitch tutorials (image or text). Archiving and export are built in, and the build output is a single self-contained HTML file: double-click to run offline, no internet required.
 
 > **Use it online**: no download needed, open directly in your browser → <https://kiritoxf.github.io/knit-spider/knitting-chart.html> (hosted on GitHub Pages)
 
@@ -22,7 +22,7 @@ A fully client-side knitting chart editor for hand knitters: draw grids, place s
 - Themes: four hand-picked color themes (sage / rose / mist / mauve), switchable from the top bar "More" menu; the choice is remembered locally
 
 ### Canvas
-- Grid up to 200 × 200 cells (stitches × rows), zoom 0.5 – 2.5
+- Grid up to 400 × 400 cells (stitches × rows), zoom 0.5 – 2.5
 - Row 1 starting side is switchable: right side (knit right-to-left) / left side (left-to-right)
 - Manual column labels, row highlighting
 - The symbol layer renders as a canvas bitmap (zero DOM nodes): large charts (e.g. 40 rows × 117 columns, 3200+ symbols) still switch and edit smoothly

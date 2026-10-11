@@ -337,6 +337,10 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
 .zoom-val-off { color: var(--acc-ink-3); }
 
 /* 图解页签（内嵌顶栏：药丸形态，无自身背景/边框） */
+.chart-tabs-wrap {
+  display: flex; align-items: center; gap: 2px;
+  min-width: 0; flex: 1;
+}
 .chart-tabs {
   display: flex; align-items: center; gap: 4px;
   min-width: 0; flex: 1;
@@ -345,6 +349,16 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
   padding: 1px 0;
 }
 .chart-tabs::-webkit-scrollbar { display: none; }
+.ctab-arrow {
+  flex: none; width: 20px; height: 22px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--acc-border); border-radius: 999px;
+  background: var(--acc-surface-2); color: var(--acc-ink-2);
+  font-size: 14px; line-height: 1; cursor: pointer; user-select: none;
+}
+.ctab-arrow:hover { background: var(--acc-50); color: var(--acc-700); border-color: var(--acc-300); }
+/* 无溢出时隐藏但仍占位：若用 display:none 会改变滚动区宽度，导致溢出状态抖动 */
+.ctab-arrow.is-hidden { visibility: hidden; pointer-events: none; }
 .ctab {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
   padding: 4px 11px; border: 1px solid var(--acc-border);
@@ -370,7 +384,7 @@ body { font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; mar
 }
 .ctab-x:hover { background: #fecaca; color: #b91c1c; }
 .ctab-add {
-  flex: none; padding: 3px 9px;
+  flex: none; padding: 3px 9px; margin-left: 2px;
   border: 1px dashed var(--acc-border); border-radius: 999px;
   background: transparent; color: var(--acc-ink-2);
   font-size: 12px; cursor: pointer; line-height: 1.4;
