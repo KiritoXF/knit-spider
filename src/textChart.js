@@ -80,15 +80,21 @@ export function chartToTextRows(st) {
         sid = ws && wsMap[p.sym] ? wsMap[p.sym] : p.sym;
       }
       const name = symTextName(sid, st.customSymbols);
-      if (cur && cur.name === name) cur.n++;
-      else { cur = { name, n: 1, sid }; groups.push(cur); }
+      const cc = p ? (p.c || 0) : 0; // 多色：颜色索引随放置走；背景针固定 0
+      if (cur && cur.name === name && cur.c === cc) cur.n++;
+      else { cur = { name, n: 1, sid, c: cc }; groups.push(cur); }
     };
     if (onRight) for (let c = st.cols - 1; c >= 0; c--) step(c);
     else for (let c = 0; c < st.cols; c++) step(c);
     rows.push({
       r, ws, groups,
       count: st.cols - noStCells, // 本行实际编织针数（被减掉的不算）
-      text: 'r' + r + (ws ? '（反面）' : '') + '：' + groups.map(g => g.n + g.name).join('，'),
+      text: 'r' + r + (ws ? '（反面）' : '') + '：' + groups.map(g => {
+        /* 多色：正文纯文本里用 (色名) 后缀标注；富文本视图另用 g.c 画色块 */
+        const pal = st.palette && st.palette[g.c];
+        const tag = g.c ? '(' + ((pal && pal.name) || (pal && pal.hex) || '彩') + ')' : '';
+        return g.n + g.name + tag;
+      }).join('，'),
     });
   }
   return rows;

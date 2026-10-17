@@ -1,4 +1,4 @@
-import { state, activeWork, activeChart, labelFor, getSym, sanitizeFileName } from './store.js';
+import { state, activeWork, activeChart, labelFor, getSym, sanitizeFileName, palHex as palHexOf } from './store.js';
 import { SVGNS, esc, symbolInnerMarkup } from './util.js';
 
 /* 导出当前图解为独立 SVG 文件。
@@ -27,12 +27,16 @@ export function exportSvg() {
   s.push(`<path d="${grid}" stroke="#cbd5e1" stroke-width="0.025" fill="none"/>`);
   s.push(`<rect x="0.03" y="0.03" width="${cols - 0.06}" height="${rows - 0.06}" fill="none" stroke="#475569" stroke-width="0.06"/>`);
 
-  /* 符号：嵌套 <svg> 内联矢量（drawImage 与其等价：按放置宽高铺满格子） */
+  /* 符号：嵌套 <svg> 内联矢量（drawImage 与其等价：按放置宽高铺满格子）。
+     多色：色块底（开关）+ 符号按放置的调色板色着色 */
   for (const p of state.placements) {
     const sym = getSym(p.sym);
     if (!sym) continue;
     const ty = rows - p.row - p.h + 1;
-    s.push(`<svg x="${p.col}" y="${ty}" width="${p.w}" height="${p.h}" viewBox="0 0 ${sym.w} ${sym.h}" preserveAspectRatio="none">${symbolInnerMarkup(sym)}</svg>`);
+    const hex = p.c ? palHexOf(p) : ''; // c=0 = 符号原色
+    if (hex && state.showBlocks)
+      s.push(`<rect x="${p.col + 0.09}" y="${ty + 0.09}" width="${p.w - 0.18}" height="${p.h - 0.18}" rx="0.13" fill="${hex}" fill-opacity="0.28"/>`);
+    s.push(`<svg x="${p.col}" y="${ty}" width="${p.w}" height="${p.h}" viewBox="0 0 ${sym.w} ${sym.h}" preserveAspectRatio="none">${symbolInnerMarkup(sym, hex)}</svg>`);
   }
 
   /* 粗边框（与 #chartTop 一致） */

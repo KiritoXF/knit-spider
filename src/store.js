@@ -38,6 +38,11 @@ export const state = reactive({
   zoom: 1,
   rowStartSide: 'right',  // 第 1 行行号位置：'right' 右侧（从右往左织）| 'left' 左侧
   colLabels: {},       // {'列索引': '显示文本'}，未设置则不显示
+  palette: [],         // 当前图解调色板 [{hex, name}]，多色编织用；c=0 为默认描边色
+  colorIdx: 0,         // 当前绘制色索引（会话级 UI 状态，不随图解存档）
+  showBlocks: false,   // 色块底：符号下方垫半透明颜色块（图解级设置，默认关）
+  viewHoverSame: false, // 视图：悬浮格子高亮所有同色符号（会话级，不存档）
+  hoverC: null,        // 当前悬浮命中的颜色索引（null = 无；配合 viewHoverSame）
   favorites: [],       // 标记为"常用"的符号 id（仅本机 UI 偏好，不进撤销与 JSON 存档）
   activeCats: ['all'], // 符号面板分类筛选（仅本机 UI 偏好，不进撤销与 JSON 存档）
   theme: 'sage',       // 配色主题 id（见 THEMES；仅本机偏好，不进作品树与 JSON 存档）
@@ -132,6 +137,8 @@ function syncActiveChart() {
   c.borders = state.borders;
   c.annotations = state.annotations;
   c.doneRows = state.doneRows;
+  c.palette = state.palette;
+  c.showBlocks = state.showBlocks;
 }
 /* 活动图解 → 装入编辑投影（切换图解/作品后调用） */
 function projectActive() {
@@ -145,8 +152,11 @@ function projectActive() {
   state.annotations = c.annotations;
   state.highlight = null;
   state.doneRows = Math.min(state.rows, Math.max(0, Math.round(+c.doneRows) || 0));
+  state.palette = normPalette(c.palette);
+  state.showBlocks = !!c.showBlocks;
+  state.colorIdx = 0; // 换图解回到默认色，避免旧色索引悬空
   if (state.tool !== 'erase' && state.tool !== 'border' && state.tool !== 'select' &&
-      state.tool !== 'paste' && !getSym(state.tool)) state.tool = 'knit';
+      state.tool !== 'paste' && state.tool !== 'brush' && !getSym(state.tool)) state.tool = 'knit';
 }
 
 function uniqueName(base, taken) {
@@ -158,11 +168,30 @@ function uniqueName(base, taken) {
 function defaultChartName(w) {
   return uniqueName('图解', w.charts.map(c => c.name));
 }
+/* 默认调色板：0 号表示「符号原色」（不染色），其余为多色编织常用色 */
+export const DEFAULT_PALETTE = () => [
+  { hex: '#111111', name: '原色' },
+  { hex: '#e0393e', name: '红' },
+  { hex: '#2f6fd0', name: '蓝' },
+  { hex: '#3d9c4f', name: '绿' },
+  { hex: '#e9b02c', name: '黄' },
+  { hex: '#8b4fc9', name: '紫' },
+];
+/* 调色板规范化：6 位 hex 过滤、上限 16 色、至少保留 1 色 */
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+function normPalette(p) {
+  const out = (Array.isArray(p) ? p : [])
+    .filter(x => x && typeof x.hex === 'string' && HEX_RE.test(x.hex))
+    .slice(0, 16)
+    .map(x => ({ hex: x.hex.toLowerCase(), name: String(x.name || '') }));
+  return out.length ? out : DEFAULT_PALETTE();
+}
 function newChart(name, rows = 36, cols = 24) {
   return {
     id: genId('c'), name: name || '图解',
     rows, cols, rowStartSide: state.rowStartSide === 'left' ? 'left' : 'right',
     colLabels: {}, placements: [], borders: [], annotations: [], locked: false,
+    palette: DEFAULT_PALETTE(), showBlocks: false,
     doneRows: 0,
     updatedAt: Date.now(), // 最后更改时间（新建即计），随存档保存
   };
@@ -380,6 +409,9 @@ function chartFpFast() {
   };
   m(state.rows | 0); m(state.cols | 0);
   m(state.rowStartSide === 'left' ? 1 : 2);
+  const pl = toRaw(state.palette);
+  m(pl.length | 0);
+  for (let i = 0; i < pl.length; i++) { ms(pl[i].hex); ms(pl[i].name || ''); }
   const cl = toRaw(state.colLabels);
   for (const k of Object.keys(cl)) { m(+k || 0); ms(String(cl[k])); }
   const ps = toRaw(state.placements);
@@ -393,7 +425,7 @@ function chartFpFast() {
       symHashMemo.set(p.sym, sh);
     }
     m(sh); m((p.col || 0) | 0); m((p.row || 0) | 0);
-    m((p.w || 1) | 0); m((p.h || 1) | 0);
+    m((p.w || 1) | 0); m((p.h || 1) | 0); m((p.c || 0) | 0);
   }
   const bs = toRaw(state.borders);
   for (let i = 0; i < bs.length; i++) {
@@ -415,7 +447,7 @@ function chartRefs() {
     placements: state.placements, borders: state.borders, annotations: state.annotations,
     colLabels: state.colLabels, customSymbols: state.customSymbols,
     hiddenSymbols: state.hiddenSymbols, cols: state.cols, rows: state.rows,
-    rowStartSide: state.rowStartSide,
+    rowStartSide: state.rowStartSide, palette: state.palette,
   };
 }
 function syncHistUI() {
@@ -648,7 +680,7 @@ export function save(definite = false) {
       if (canvasDirty === null) markCanvasAllDirty(); // 未标的路径兜底按全图
       const e = {};
       for (const k of ['placements', 'borders', 'annotations', 'colLabels',
-        'customSymbols', 'hiddenSymbols', 'cols', 'rows', 'rowStartSide']) {
+        'customSymbols', 'hiddenSymbols', 'cols', 'rows', 'rowStartSide', 'palette']) {
         if (refs[k] !== lastRefs[k]) e[k] = { from: lastRefs[k], to: refs[k] };
       }
       history = history.slice(0, hIndex + 1); // 编辑作废重做分支
@@ -681,6 +713,8 @@ function sanitizeChartIn(c, chosenNames) {
     doneRows: Math.min(rows, Math.max(0, Math.round(+c.doneRows) || 0)),
     updatedAt: (typeof c.updatedAt === 'number' && c.updatedAt > 0) ? c.updatedAt : Date.now(),
     colLabels: (c.colLabels && typeof c.colLabels === 'object') ? { ...c.colLabels } : {},
+    palette: normPalette(c.palette),
+    showBlocks: !!c.showBlocks,
     placements: (Array.isArray(c.placements) ? c.placements : []).filter(p => p && p.sym).map(p => ({ ...p })),
     borders: (Array.isArray(c.borders) ? c.borders : []).map(b => ({ ...b })),
     annotations: (Array.isArray(c.annotations) ? c.annotations : [])
@@ -807,6 +841,8 @@ export function serializeChart() {
     placements: JSON.parse(JSON.stringify(state.placements)),
     borders: JSON.parse(JSON.stringify(state.borders)),
     annotations: JSON.parse(JSON.stringify(state.annotations)),
+    palette: JSON.parse(JSON.stringify(state.palette)),
+    showBlocks: state.showBlocks,
     doneRows: state.doneRows,
     customSymbols: JSON.parse(JSON.stringify(state.customSymbols)),
     hiddenSymbols: [...state.hiddenSymbols],
@@ -1100,13 +1136,15 @@ function applyChartObject(s) {
   state.hiddenSymbols = Array.isArray(s.hiddenSymbols) ? [...s.hiddenSymbols] : [];
   state.colLabels = (s.colLabels && typeof s.colLabels === 'object') ? { ...s.colLabels } : {};
   state.rowStartSide = s.rowStartSide === 'left' ? 'left' : 'right';
+  state.palette = normPalette(s.palette);
+  state.showBlocks = !!s.showBlocks;
   state.highlight = null;
   /* 织进度不在撤销快照里：快照无 doneRows 字段时保留当前值，只做行数越界收敛 */
   if ('doneRows' in s) state.doneRows = Math.min(rows, Math.max(0, Math.round(+s.doneRows) || 0));
   else if (state.doneRows > rows) state.doneRows = rows;
   state.placements = state.placements.filter(p => p && getSym(p.sym));
   if (state.tool !== 'erase' && state.tool !== 'border' && state.tool !== 'select' &&
-      state.tool !== 'paste' && !getSym(state.tool)) state.tool = 'knit';
+      state.tool !== 'paste' && state.tool !== 'brush' && !getSym(state.tool)) state.tool = 'knit';
 }
 
 /* 解析 JSON 文本并整体覆盖当前画布；失败时抛错由调用方提示 */
@@ -1176,6 +1214,7 @@ export function pasteAt(c, r) {
     const col = c + (mH ? cb.w - rp.col - d.w : rp.col);
     const row = r + (mV ? cb.h - rp.row - d.h : rp.row);
     const q = { sym: rp.sym, col, row, w: d.w, h: d.h };
+    if (rp.c) q.c = rp.c; // 多色：颜色随块粘贴
     if (rp.fx) q.fx = true;
     if (rp.fy) q.fy = true;
     if (!fits(col, row, d.w, d.h)) continue;
@@ -1330,6 +1369,7 @@ export function fits(c, r, w, h) {
 export function applyAt(c, r) {
   if (guardLocked()) return;
   const tool = state.tool;
+  if (tool === 'brush') { brushAt(c, r); return; }
   if (tool === 'erase') {
     const pn = state.placements.length, bn = state.borders.length, an = state.annotations.length;
     const bb = [c, r, c, r]; // 被删符号足迹并入脏区（可能比点击格大得多）
@@ -1351,16 +1391,18 @@ export function applyAt(c, r) {
   // 先找首个相交项：不相交走 concat（少分配一份 N 槽数组，连点时 GC 更轻）
   const clashPred = p => c < p.col + p.w && p.col < c + d.w && r < p.row + p.h && p.row < r + d.h;
   const raw = toRaw(state.placements);
+  const cc = state.colorIdx | 0;
   const add = { sym: tool, col: c, row: r, w: d.w, h: d.h };
+  if (cc) add.c = cc; // 0 = 默认色，省字段
   let clashIdx = -1, clashes = 0, identical = false;
   for (let i = 0; i < raw.length; i++) {
     const p = raw[i];
     if (clashPred(p)) {
       clashes++;
       if (clashIdx < 0) clashIdx = i;
-      // 与将放置的符号完全相同 → 连点同格是纯 no-op，直接短路
+      // 与将放置的符号完全相同（含颜色）→ 连点同格是纯 no-op，直接短路
       if (p.sym === tool && p.col === c && p.row === r &&
-          (p.w || 1) === d.w && (p.h || 1) === d.h) identical = true;
+          (p.w || 1) === d.w && (p.h || 1) === d.h && (p.c || 0) === cc) identical = true;
     }
   }
   if (clashes === 1 && identical) return;
@@ -1408,6 +1450,77 @@ export function eraseAt(c, r) {
   save();
 }
 
+/* ---------------- 多色编织：调色板 / 染刷 ----------------
+   颜色索引 c 存在 placement 上（0/缺省 = 符号原色），hex/name 在图解级
+   palette 里。改 palette 的 hex 会让所有引用该色的符号一起变色；
+   各入口都整体替换容器（撤销历史按引用追踪），并按全图标脏。 */
+export function setColorIdx(i) {
+  const n = state.palette.length;
+  state.colorIdx = Math.min(n - 1, Math.max(0, i | 0));
+}
+export function palHex(i) {
+  const e = state.palette[i];
+  return (e && e.hex) || '#111111';
+}
+/* 编辑第 i 个颜色（hex/名称一起替换；撤销与重渲走 save 的引用比较） */
+export function editPaletteColor(i, hex, name) {
+  const h = String(hex || '').trim().toLowerCase();
+  if (!HEX_RE.test(h)) return false;
+  const raw = toRaw(state.palette).slice();
+  if (!raw[i]) return false;
+  raw[i] = { hex: h, name: String(name || '').trim() };
+  state.palette = raw;
+  markCanvasAllDirty(); // 颜色变了牵动全部色块/符号着色
+  save(true);
+  return true;
+}
+export function addPaletteColor(hex, name) {
+  const h = String(hex || '').trim().toLowerCase();
+  if (!HEX_RE.test(h) || state.palette.length >= 16) return false;
+  state.palette = toRaw(state.palette).concat([{ hex: h, name: String(name || '').trim() }]);
+  state.colorIdx = state.palette.length - 1;
+  markCanvasAllDirty();
+  save(true);
+  return true;
+}
+/* 删除第 i 色：已用该色的符号回退默认色，索引大于 i 的整体前移 */
+export function removePaletteColor(i) {
+  if (state.palette.length <= 1 || !state.palette[i]) return false;
+  const raw = toRaw(state.palette).slice();
+  raw.splice(i, 1);
+  state.palette = raw;
+  state.placements = toRaw(state.placements).map(p => {
+    const c0 = p.c || 0;
+    if (c0 === i) { const { c: _drop, ...rest } = p; return rest; } // 回退默认色
+    return c0 > i ? { ...p, c: c0 - 1 } : p;
+  });
+  if (state.colorIdx >= raw.length) state.colorIdx = raw.length - 1;
+  markCanvasAllDirty();
+  save(true);
+  return true;
+}
+export function toggleShowBlocks() {
+  state.showBlocks = !state.showBlocks;
+  markCanvasAllDirty(); // 色块画在符号层瓦片里
+  save(true);
+}
+/* 染刷：把点击格命中的符号（整只，含宽符号）染成当前绘制色；
+   当前色为 0 号「原色」时恢复符号原色（移除 c 字段）。
+   拖拽染色由画布 pointermove 逐格调 applyAt 自然完成 */
+export function brushAt(c, r) {
+  if (guardLocked()) return;
+  const to = state.colorIdx | 0;
+  const raw = toRaw(state.placements);
+  const hitP = raw.find(p => hit(p, c, r));
+  if (!hitP) return; // 空白格：不放符号也不报错，刷子只对已有符号生效
+  if ((hitP.c || 0) === to) return; // 同色：no-op（连点/来回拖安全）
+  let np;
+  if (to) np = { ...hitP, c: to };
+  else { const { c: _drop, ...rest } = hitP; np = rest; } // 恢复原色
+  state.placements = raw.map(p => p === hitP ? np : p);
+  markCanvasDirty(hitP.col, hitP.row, hitP.col + (hitP.w || 1) - 1, hitP.row + (hitP.h || 1) - 1);
+  save(true);
+}
 /* ---------------- 网格 / 清空 ---------------- */
 export function resizeGrid(cols, rows) {
   if (guardLocked()) return;

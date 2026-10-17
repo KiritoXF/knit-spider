@@ -48,6 +48,15 @@ watch(() => contentRev.n, () => {
 onMounted(() => { if (ui.textChartOpen) rebuildRows(); });
 onUnmounted(() => clearTimeout(rowsTimer));
 const text = computed(() => rows.value.map(x => x.text).join('\n'));
+/* 多色：颜色索引 → hex（色块标注用）；色名开关持久化在本机偏好 */
+const chipColor = i => (state.palette[i] && state.palette[i].hex) || '#111111';
+const colorName = i => { const e = state.palette[i]; return e ? (e.name || e.hex) : ''; };
+const LS_CNAME = 'tcShowColorNames';
+const showColorName = ref(localStorage.getItem(LS_CNAME) === '1');
+function toggleColorName() {
+  showColorName.value = !showColorName.value;
+  try { localStorage.setItem(LS_CNAME, showColorName.value ? '1' : '0'); } catch (e) {}
+}
 /* 弹窗标题：作品名 · 图解名 */
 const headTitle = computed(() => {
   const w = activeWork();
@@ -76,8 +85,9 @@ const legend = computed(() => {
   const map = new Map();
   for (const row of rows.value) {
     for (const g of row.groups || []) {
-      let it = map.get(g.sid);
-      if (!it) { it = { sid: g.sid, name: g.name, n: 0, sym: getSym(g.sid), tut: null, tutText: null }; map.set(g.sid, it); }
+      const key = g.sid + '|' + (g.c || 0); // 多色：同符号不同色分行展示
+      let it = map.get(key);
+      if (!it) { it = { sid: g.sid, name: g.name, n: 0, sym: getSym(g.sid), tut: null, tutText: null, c: g.c || 0 }; map.set(key, it); }
       it.n += g.n;
     }
   }
@@ -249,15 +259,26 @@ function onDownload() {
           </svg>
           文字解<span class="modal-sub">— {{ headTitle }}</span>
         </h2>
-        <button v-if="pipSup" class="tcm-btn tc-pip-btn" :class="{ on: pipOn }"
-          :title="pipOn ? '关闭歌词浮窗' : '弹出置顶歌词浮窗：切到别的软件 / 标签页也能看当前行、点织完这行'"
-          @click="togglePip">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="2" y="4" width="20" height="14" rx="2"/><rect x="12" y="11" width="8" height="5" rx="1" fill="currentColor" stroke="none"/>
-          </svg>
-          {{ pipOn ? '浮窗中' : '浮窗' }}
-        </button>
+        <span class="tcm-head-acts">
+          <button id="tcColorName" class="tcm-btn tc-pip-btn" :class="{ on: showColorName }"
+            title="色块后显示颜色名（颜色多时更易区分）" @click="toggleColorName">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="7.5" cy="8.5" r="3.5"/><circle cx="16" cy="7" r="3"/>
+              <path d="M13 13.5 5.5 21l-3-3 7.5-7.5z" fill="currentColor" stroke="none"/>
+            </svg>
+            色名
+          </button>
+          <button v-if="pipSup" class="tcm-btn tc-pip-btn" :class="{ on: pipOn }"
+            :title="pipOn ? '关闭歌词浮窗' : '弹出置顶歌词浮窗：切到别的软件 / 标签页也能看当前行、点织完这行'"
+            @click="togglePip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="4" width="20" height="14" rx="2"/><rect x="12" y="11" width="8" height="5" rx="1" fill="currentColor" stroke="none"/>
+            </svg>
+            {{ pipOn ? '浮窗中' : '浮窗' }}
+          </button>
+        </span>
         <span class="tcm-chip">共 {{ state.rows }} 行</span>
         <button id="tcClose" class="modal-x" title="关闭" @click="close">×</button>
       </div>
@@ -293,11 +314,13 @@ function onDownload() {
           </div>
           <div class="tcm-syms">
             <p v-if="!legend.length" class="tcm-empty">该图解还没有内容。</p>
-            <div v-for="it in legend" :key="it.sid" class="tcm-sym">
+            <div v-for="it in legend" :key="it.sid + '|' + (it.c || 0)" class="tcm-sym">
               <svg v-if="it.sym" class="tcm-sym-ico" :viewBox="`0 0 ${it.sym.w} ${it.sym.h}`">
                 <SymbolArt :sym="it.sym"/>
               </svg>
               <span v-else class="tcm-sym-ico-none">{{ it.name.slice(0, 1) }}</span>
+              <i v-if="it.c" class="tc-chip" :style="{ background: chipColor(it.c) }" :title="chipColor(it.c)"></i>
+              <span v-if="it.c && showColorName" class="tc-cname">{{ colorName(it.c) }}</span>
               <span class="tcm-sym-name" :class="{ 'tc-name-tut': it.tut || it.tutText }"
                 :title="it.tut || it.tutText ? '悬停查看织法教程' : ''"
                 @mouseenter="onNameEnter($event, it)" @mouseleave="onNameLeave">{{ it.name }}</span>
@@ -325,7 +348,7 @@ function onDownload() {
           </div>
           <div v-else id="textChartView" ref="docEl" class="tcm-doc" @scroll.passive="hidePop">
             <div v-for="row in view" :key="row.r" class="tcm-row"
-              v-memo="[row.text, row.tutFlags, row.r <= state.doneRows, row.r === curRow && !allDone]"
+              v-memo="[row.text, row.tutFlags, row.r <= state.doneRows, row.r === curRow && !allDone, showColorName]"
               :class="{ 'tcm-row-ws': row.ws, 'tcm-row-done': row.r <= state.doneRows,
                         'tcm-row-cur': row.r === curRow && !allDone }">
               <span class="tcm-rnog">
@@ -334,7 +357,9 @@ function onDownload() {
               </span>
               <span class="tcm-txt">
                 <span v-for="(g, i) in row.groups" :key="i">
-                  <b>{{ g.n }}</b><span :class="{ 'tc-name-tut': g.tut || g.tutText }"
+                  <i v-if="g.c" class="tc-chip" :style="{ background: chipColor(g.c) }"
+                    :title="chipColor(g.c)"></i><span v-if="g.c && showColorName"
+                    class="tc-cname">{{ colorName(g.c) }}</span><b>{{ g.n }}</b><span :class="{ 'tc-name-tut': g.tut || g.tutText }"
                     @mouseenter="onNameEnter($event, g)" @mouseleave="onNameLeave">{{ g.name }}</span><span
                     v-if="i < row.groups.length - 1" class="tcm-comma">，</span>
                 </span>

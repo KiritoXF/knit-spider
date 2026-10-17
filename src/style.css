@@ -890,6 +890,63 @@ text { user-select: none; }
   cursor: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="%23334155" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/%3E%3Cpath d="M22 21H7"/%3E%3Cpath d="m5 11 9 9"/%3E%3C/svg%3E') 5 19, pointer;
 }
 #chart.cur-paste { cursor: copy; }
+/* 染刷：刷头斜置（热点在刷毛尖） */
+#chart.cur-brush {
+  cursor: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%23334155" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/%3E%3Cpath d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" fill="%23b5651d"/%3E%3C/svg%3E') 4 21, crosshair;
+}
+
+/* ---- 多色编织：调色板弹层（工具条颜色按钮下方） ---- */
+.pal-panel { width: 300px; } /* 固定宽：色名输入框不再把面板撑宽挤向左边 */
+.pal-grid { display: flex; flex-wrap: wrap; gap: 7px; margin: 6px 0 10px; }
+.pal-swatch {
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer; flex: none;
+  border: 2px solid transparent; padding: 0;
+  box-shadow: inset 0 0 0 2px var(--acc-surface), 0 1px 3px rgba(0, 0, 0, .2);
+  transition: transform .12s;
+}
+.pal-swatch:hover { transform: scale(1.12); }
+.pal-swatch-on { border-color: var(--acc-700); transform: scale(1.12); }
+.pal-add {
+  width: 26px; height: 26px; border-radius: 50%; flex: none; cursor: pointer;
+  background: var(--acc-50); border: 1px dashed var(--acc-300); color: var(--acc-ink-3);
+  font-size: 15px; line-height: 1; display: grid; place-items: center; padding: 0;
+}
+.pal-add:hover { border-color: var(--acc-700); color: var(--acc-700); }
+.pal-edit { display: flex; align-items: center; gap: 6px; }
+.pal-edit input[type="color"] {
+  width: 34px; height: 28px; padding: 0; border: 1px solid var(--acc-border);
+  border-radius: 6px; background: none; cursor: pointer; flex: none;
+}
+.pal-hex { width: 84px; flex: none; font-family: Consolas, monospace; }
+.pal-name { flex: 1; min-width: 0; } /* 占余量但不撑宽面板 */
+.pal-foot { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
+.pal-hint { font-size: 10.5px; color: var(--acc-ink-3); margin-top: 7px; line-height: 1.5; }
+/* 当前绘制色的小圆点（工具条按钮内） */
+.tb-cur-dot {
+  width: 13px; height: 13px; border-radius: 4px; flex: none; display: inline-block;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18);
+}
+/* 文字解正文里的颜色小色块 */
+.tc-chip {
+  display: inline-block; width: 11px; height: 11px; border-radius: 3px;
+  margin: 0 4px 0 1px; vertical-align: -1px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .15);
+}
+/* 色块后的颜色名（文字解开关控制显示） */
+.tc-cname {
+  font-size: 11px; color: var(--acc-ink-3, #8a8378);
+  margin: 0 3px 0 0; vertical-align: 0;
+}
+/* 工具条视图菜单：checkbox 选项列表 */
+.view-panel { min-width: 200px; }
+.view-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; padding: 6px 4px; cursor: pointer; border-radius: 6px;
+}
+.view-item:hover { background: var(--acc-50, #faf7f2); }
+.view-item input[type="checkbox"] {
+  width: 15px; height: 15px; accent-color: var(--acc-700, #b5651d); cursor: pointer; flex: none;
+}
 
 /* ---- 换配色过渡：栏面/边框/文字 0.2s 平滑跟随（不含画布 #chartWrap/#chart/#symLayer） ---- */
 .topbar, .toolbar, .sidebar, .main, .home, .home-top, .home-foot,
@@ -912,6 +969,13 @@ text { user-select: none; }
    PiP 窗自身裁切内容，popover 等都收在窗口内 */
 /* 文字解弹窗头部的「浮窗」按钮：与行数 chip 一起靠右 */
 .tc-pip-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
+/* 文字解标题栏：标题 flex:1 吃掉全部剩余宽度 → 右侧元素（色名/浮窗/行数/×）必然整排贴右。
+   不用 space-between（会把中间子元素撒到正中），也不用 auto margin（组合易出幺蛾子） */
+.tcm-shell .modal-head { justify-content: flex-start; }
+.tcm-shell .modal-title { flex: 1 1 auto; }
+.tcm-head-acts { display: flex; align-items: center; gap: 8px; flex: none; }
+.tcm-head-acts .tc-pip-btn { margin-left: 0; }
+.tcm-shell .modal-x { margin-left: 0; }
 .tc-pip-btn svg { width: 13px; height: 13px; }
 .tc-pip-btn + .tcm-chip { margin-left: 0; }
 .tc-pip-btn.on { background: var(--acc-100); border-color: var(--acc-300); color: var(--acc-800); }

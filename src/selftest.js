@@ -6,6 +6,7 @@ import {
   hideSymbol, restoreSymbol, paletteIds, serializeChart, applyChartJson, resizeGrid, toggleFav,
   undo, redo, histState, copySelection, deleteSelection, pasteAt, clipSel, clipBoard,
   addAnnotation, setColLabel, isChartLocked, toggleChartLocked,
+  setColorIdx, brushAt,
   setDoneRows, stepDoneRows,
   activeWork, activeChart, addChart, switchChart, renameChart, deleteChart,
   addWork, deleteWork, serializeWork, importJson, importArchive, buildWorkZip, importChartCode, load, save, flushPersist,
@@ -212,6 +213,28 @@ export async function runSelfTest() {
     selectTool('erase'); applyAt(4, 4); selectTool('knit');
     await tick();
     return state.borders.length === 0 && state.placements.length === 1; // 交叉针不在边框区域，保留
+  });
+
+  /* ---- 多色编织：调色板 + 染刷 ---- */
+  await t('color-brush', async () => {
+    await tick();
+    const px = state.placements.map(p => ({ ...p }));
+    state.placements = [
+      { sym: 'knit', col: 2, row: 6, w: 1, h: 1 }, { sym: 'knit', col: 3, row: 6, w: 1, h: 1 },
+      { sym: 'knit', col: 5, row: 6, w: 1, h: 1 },
+    ];
+    selectTool('brush');
+    setColorIdx(1); applyAt(2, 6); applyAt(3, 6); // 逐格刷红（模拟拖拽）
+    const red = state.placements.filter(p => p.row === 6 && p.col <= 3);
+    const untouched = state.placements.find(p => p.col === 5);
+    const okRed = red.length === 2 && red.every(p => p.c === 1) && untouched && !('c' in untouched);
+    applyAt(6, 6); // 空白格：染刷应为 no-op
+    const cnt = state.placements.length;
+    setColorIdx(0); applyAt(2, 6); // 刷回 0 号 = 恢复原色：c 字段应被移除
+    const back = state.placements.find(p => p.col === 2 && p.row === 6);
+    selectTool('knit');
+    state.placements = px; // 还原现场，不影响后续用例
+    return okRed && cnt === 3 && back && !('c' in back);
   });
 
   await t('custom-create-place', async () => {

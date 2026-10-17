@@ -33,6 +33,15 @@ export function createTileLayer({ host, scrollEl, symImage, symBitmap, getSym })
   let mq = null;             // devicePixelRatio 变化监听
 
   const key = (tc, tr) => tc + ',' + tr;
+  /* 多色编织：placement.c → 调色板 hex（c 省略 = 0 号默认色，索引越界兜底默认黑） */
+  const palHexOf = p => {
+    const e = state.palette[p.c || 0];
+    return (e && e.hex) || '#111111';
+  };
+  const showBlocks = () => !!state.showBlocks;
+  /* 悬浮高亮：每次绘制时读取 state.hoverC（当前悬浮命中的颜色索引，null = 关闭/无命中）。
+     必须是函数而不是创建时的常量，否则开关与悬浮变化都不会生效 */
+  const hlOf = () => (state.viewHoverSame && state.hoverC != null) ? state.hoverC : null;
   const nColTiles = () => Math.ceil(state.cols / TILE);
   const nRowTiles = () => Math.ceil(state.rows / TILE);
   const px = () => CELL * state.zoom;
@@ -161,10 +170,36 @@ export function createTileLayer({ host, scrollEl, symImage, symBitmap, getSym })
       const sy0w = rows - p.row - p.h + 1;               // 符号顶边（世界 y，格）
       const dx0 = p.col * p1, dy0 = sy0w * p1;           // 符号世界 css 矩形
       const dw = p.w * p1, dh = p.h * p1;
+      /* 多色：c>0 → 调色板色值（越界兜底）；c=0/缺省 = 符号原色。
+         色块底开启时先垫半透明圆角块（多色花样分区一目了然），再画符号本体 */
+      const hex = p.c ? palHexOf(p) : '';
+      /* 视图·悬浮高亮同色：命中色的符号整只垫亮色底（makebead 同款交互） */
+      const hlC = hlOf();
+      if (hlC !== null && (p.c || 0) === hlC) {
+        ctx.fillStyle = hex || '#111111';
+        ctx.globalAlpha = 0.35;
+        ctx.beginPath();
+        ctx.roundRect(dx0 + 0.5, dy0 + 0.5, dw - 1, dh - 1, 0.16 * p1);
+        ctx.fill();
+        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = hex || '#111111';
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      if (hex && showBlocks()) {
+        ctx.fillStyle = hex;
+        ctx.globalAlpha = 0.28;
+        const inset = 0.09 * p1, rad = 0.14 * p1;
+        ctx.beginPath();
+        ctx.roundRect(dx0 + inset, dy0 + inset, dw - inset * 2, dh - inset * 2, rad);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
       /* 预光栅化位图：SVG image 每次 drawImage 都要按目标尺寸重新光栅化
          （矢量源，慢机器上每帧数百个 drawImage 即数百毫秒），改为每
-         (符号,尺寸) 光栅化一次到离屏 canvas，这里只做 canvas→canvas 拷贝 */
-      const bmp = symBitmap && symBitmap(sym, dw * scale, dh * scale);
+         (符号,颜色,尺寸) 光栅化一次到离屏 canvas，这里只做 canvas→canvas 拷贝 */
+      const bmp = symBitmap && symBitmap(sym, hex, dw * scale, dh * scale);
       if (!bmp) continue; // 解码中，onload 后整体重渲
       /* 与瓦片求交后按源矩形裁剪绘制：目标坐标恒在瓦片内（≥0）。
          直接整图 drawImage 会出现负目标坐标——Chromium 对 SVG 图像 +

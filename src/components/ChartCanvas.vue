@@ -80,6 +80,7 @@ const canvasStyle = computed(() => ({
    框选=虚线选框、边框=四角括号、消去=橡皮擦、粘贴=复制；符号工具保持默认（有 ghost 预览） */
 const toolClass = computed(() => {
   if (state.tool === 'erase') return 'cur-erase';
+  if (state.tool === 'brush') return 'cur-brush';
   if (state.tool === 'paste') return 'cur-paste';
   if (state.tool === 'select') return 'cur-select';
   if (state.tool === 'border') return 'cur-border';
@@ -103,8 +104,11 @@ let symWaiters = [];            // 等待全部图片就绪的回调（自测用
 const symCanvases = new WeakMap(); // 符号对象 → Map<'宽x高 设备像素', 离屏 canvas>
 let layer = null;               // createTileLayer 实例（onMounted 创建）
 
-function symImage(sym) {
-  let img = symImgs.get(sym);
+function symImage(sym, color) {
+  /* 按 (符号, 颜色) 双级缓存：多色编织下同一符号会有多个着色变体 */
+  let byColor = symImgs.get(sym);
+  if (!byColor) { byColor = new Map(); symImgs.set(sym, byColor); }
+  let img = byColor.get(color);
   if (!img) {
     img = new Image();
     symPending++;
@@ -115,21 +119,21 @@ function symImage(sym) {
       if (layer) { layer.markAllDirty(); layer.schedule(); }
     };
     img.onerror = () => { symPending--; flushSymWaiters(); console.warn('符号位图生成失败:', sym && sym.id); };
-    img.src = symDataUrl(sym);
-    symImgs.set(sym, img);
+    img.src = symDataUrl(sym, color);
+    byColor.set(color, img);
   }
   return img;
 }
 /* 符号预光栅化：SVG image 每次 drawImage 都要按目标尺寸重新光栅化
    （矢量源），慢机器上每帧几百个 drawImage 就是数百毫秒。改为每个
-   (符号, 尺寸) 只光栅化一次到离屏 canvas，之后全部 canvas→canvas 拷贝 */
-function symBitmap(sym, wPx, hPx) {
+   (符号, 颜色, 尺寸) 只光栅化一次到离屏 canvas，之后全部 canvas→canvas 拷贝 */
+function symBitmap(sym, color, wPx, hPx) {
   let sizes = symCanvases.get(sym);
   if (!sizes) { sizes = new Map(); symCanvases.set(sym, sizes); }
-  const key = Math.round(wPx) + 'x' + Math.round(hPx);
+  const key = (color || '') + '|' + Math.round(wPx) + 'x' + Math.round(hPx);
   let cv = sizes.get(key);
   if (!cv) {
-    const img = symImage(sym); // 同时承担解码计数/等待者机制
+    const img = symImage(sym, color); // 同时承担解码计数/等待者机制
     if (!img.complete || !img.naturalWidth) return null; // 解码中，onload 后整体重渲
     cv = document.createElement('canvas');
     cv.width = Math.max(1, Math.round(wPx));
@@ -151,6 +155,7 @@ watchEffect(() => {
      不能只读 placements.length：同格覆盖时长度不变会漏触发，
      导致「改动攒到下次编辑才一起画出来」 */
   contentRev.n; state.zoom; state.cols; state.rows;
+  state.palette; state.showBlocks; state.viewHoverSame; // 多色：调色板/色块底/悬浮高亮开关（整体替换时引用比较触发）
   for (const s of state.customSymbols) void s.id;
   if (layer) layer.schedule();
 });
@@ -268,6 +273,7 @@ function onPointerMove(e) {
   if (key === lastHoverKey) return; // 同一格内移动：无需更新
   lastHoverKey = key;
   updateGhost(cell);
+  updateHoverColor(cell);
   if (!cell) return;
   lastCell = cell;
   if (borderDrag) return;
@@ -281,10 +287,25 @@ function onPointerMove(e) {
     // 同格内的高频 move 不重复落格（applyAt 需扫全量放置，move 风暴会占满主线程）
     if (lastPaint && lastPaint.c === cell.c && lastPaint.r === cell.r) return;
     const d = getSym(state.tool);
-    if (state.tool === 'erase' || (d && d.w === 1 && d.h === 1)) {
+    if (state.tool === 'erase' || state.tool === 'brush' || (d && d.w === 1 && d.h === 1)) {
       applyAt(cell.c, cell.r);
       lastPaint = cell;
     }
+  }
+}
+/* 视图：悬浮高亮同色。hoverC 变化会触发全量瓦片重绘（重绘成本低：
+   只重画可视区瓦片，且悬浮是逐格离散变化） */
+function updateHoverColor(cell) {
+  let nc = null;
+  if (state.viewHoverSame && cell) {
+    const { c, r } = cell;
+    const p = state.placements.find(q =>
+      c >= q.col && c < q.col + (q.w || 1) && r >= q.row && r < q.row + (q.h || 1));
+    if (p) nc = p.c || 0;
+  }
+  if (nc !== state.hoverC) {
+    state.hoverC = nc;
+    if (layer) { layer.markAllDirty(); layer.schedule(); }
   }
 }
 function onPointerUp() {
@@ -302,6 +323,7 @@ function onPointerUp() {
 function onPointerLeave() {
   lastHoverKey = null;
   updateGhost(null);
+  updateHoverColor(null);
 }
 function footprintAt(c, r) {
   if (state.tool === 'erase' || state.tool === 'border') return { w: 1, h: 1 };
