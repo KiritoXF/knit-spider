@@ -15,6 +15,18 @@ import { join } from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
 import { SVGPathCommander } from 'svg-path-commander';
 
+/* ---------- JSON 文件 BOM 防线 ----------
+   编辑器保存时可能给 JSON 写回 UTF-8 BOM，Vite 的 JSON 加载器（PostCSS 配置、
+   vite.config 读取 package.json 版本号）会直接 SyntaxError，CI 构建失败。
+   这里在构建链最前面检测并剥离，必须放在下方「源库缺失提前 exit」之前 */
+for (const f of ['package.json', 'src-tauri/tauri.conf.json']) {
+  const buf = readFileSync(f);
+  if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    writeFileSync(f, buf.subarray(3));
+    console.warn(`[gen-symbols] stripped UTF-8 BOM from ${f}`);
+  }
+}
+
 const SRC_DIR = 'D:/patterns/knitting_symbols-0.7.2/JIS';
 const OUT = 'src/symbols.generated.js';
 const SX = 3 / 29, SY = 3 / 22;
