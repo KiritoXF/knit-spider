@@ -2,6 +2,14 @@
    发新版本时：这里加一段 → CHANGELOG.md 加一段 → package.json version 跟进 */
 export const CHANGELOG = [
   {
+    version: 'v0.2.11',
+    date: '2026-10-18',
+    items: [
+      '修复歌词浮窗行数计数器回跳：读档间隙的连点进度不再被旧快照覆盖',
+      '版本号可见：浏览器端显示在页面标题，桌面端显示在窗口左上角标题栏',
+    ],
+  },
+  {
     version: 'v0.2.10',
     date: '2026-10-18',
     items: [

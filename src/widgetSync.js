@@ -76,9 +76,18 @@ export function initSync(mode) {
           return;
         }
         lastContentFp = fp;
-        /* load 现在是异步读 IndexedDB：等档真正套到 state 上再重播种撤销历史
-           （旧版同步 load 可以直接跟在后面，异步化后必须挂 then） */
+        /* load 现在是异步读 IndexedDB：读档间隙（大图解 MB 级 parse 可达数百毫秒）
+           用户可能在浮窗连点 ✓/◀。这些点击已按 delta 经 PIP_KEY 被主窗口吸收，
+           但 load 落地时 projectActive 会用快照里的 doneRows 整体覆盖内存——
+           快照落盘早于这些点击，刚点的进度会被吃掉（计数器回跳，下次落盘又
+           拉回来，表现为计数器来回震荡）。快照 progT 比本端最近一次本地操作
+           旧时，load 完成后把本地值重新按上（换图解则随 load，不恢复） */
+        const localPending = (state.activeChartId === c.id && lastLocalT > +(d.progT || 0))
+          ? state.doneRows : null;
         load().then(() => {
+          if (localPending != null && state.activeChartId === c.id) {
+            state.doneRows = Math.min(state.rows, Math.max(0, localPending));
+          }
           resetHistory();
           contentRev.n++;    // 触发歌词行重算
         });

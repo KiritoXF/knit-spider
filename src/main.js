@@ -36,6 +36,17 @@ if (location.search.indexOf('popdoc=1') >= 0) {
 
   createApp(App).mount('#app');
 
+  /* 版本号显示：浏览器改标签页 title；桌面端改窗口标题栏（左上角标题）。
+     浮窗/教程承载窗不改（它们有自己的标题语义） */
+  const VER = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
+  if (VER) {
+    if (window.__TAURI__) {
+      try { window.__TAURI__.window.getCurrentWindow().setTitle('蜘蛛织毛线 v' + VER); } catch (e) {}
+    } else {
+      document.title = '蜘蛛织毛线 · 棒针图解 v' + VER;
+    }
+  }
+
   /* 系统托盘「打开 / 关闭歌词浮窗」菜单：Rust 发事件，这里执行开关 */
   if (window.__TAURI__) {
     window.__TAURI__.event.listen('lp-tray-pip', () => togglePip()).catch(() => {});
