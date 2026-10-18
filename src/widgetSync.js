@@ -3,12 +3,12 @@
    同步策略（不对称，避免互相覆盖整棵作品树）：
    - 主 → 浮窗 进度：主窗口 setDoneRows 写专用小键 PROG_KEY（即时、几十字节），
      浮窗静默对齐数字；progT 时间戳用于丢弃快速连点时迟到的旧回声
-   - 主 → 浮窗 内容：主窗口编辑图解后整档写 LS_KEY（节流）；浮窗收到事件先比内容
-     指纹（updatedAt+wsMap+theme），真变了才整档 load() + contentRev++ 重建文字解，
-     纯进度落盘则静默对齐、不闪不重建
+   - 主 → 浮窗 内容：主窗口整档写 IndexedDB（节流）后 bumpRev 写 REV_KEY 信号键；
+     浮窗收到信号从 IndexedDB 重读全档，先比内容指纹（updatedAt+wsMap+theme），
+     真变了才整档 load() + contentRev++ 重建文字解，纯进度落盘则静默对齐、不闪不重建
    - 浮窗 → 主：浮窗推进织进度只写独立小键 PIP_KEY（相对步进 delta，绝不整树落盘，
      否则浮窗的旧快照会覆盖主窗口未落盘的编辑）；主窗口收到 PIP_KEY → 只叠加 delta */
-import { state, load, setDoneRows, resetHistory, contentRev, LS_KEY, PROG_KEY } from './store.js';
+import { state, load, setDoneRows, resetHistory, contentRev, LS_KEY, REV_KEY, PROG_KEY, readPersistJson } from './store.js';
 
 export const PIP_KEY = LS_KEY + '.pip';
 
@@ -49,10 +49,18 @@ export function initSync(mode) {
         if (v !== state.doneRows) state.doneRows = v;
       } catch (err) {}
     });
+    /* 内容同步专线：主窗口 IndexedDB 落盘成功后 bumpRev 写 REV_KEY。
+       收到信号从 IndexedDB 重读全档再做指纹判定。rev 单调递增：
+       事件可能与异步读乱序（重读期间又来新信号），比 lastRev 旧的直接丢弃 */
+    let lastRev = 0;
     window.addEventListener('storage', e => {
-      if (e.key !== LS_KEY || !e.newValue) return;
-      try {
-        const d = JSON.parse(e.newValue);
+      if (e.key !== REV_KEY || !e.newValue) return;
+      let rev = 0;
+      try { rev = +(JSON.parse(e.newValue).rev) || 0; } catch (err) { return; }
+      if (rev <= lastRev) return;
+      lastRev = rev;
+      readPersistJson().then(d => {
+        if (!d || rev < lastRev) return; // 读档期间又有更新的信号：本次作废
         const w = Array.isArray(d.works) && d.works.find(x => x.id === d.activeWorkId);
         const c = w && w.charts.find(x => x.id === d.activeChartId);
         const fp = c ? c.updatedAt + '|' + JSON.stringify(d.wsMap || {}) + '|' + d.theme : '';
@@ -68,10 +76,13 @@ export function initSync(mode) {
           return;
         }
         lastContentFp = fp;
-        load();            // 整档重读（换作品/换图解/图面编辑都跟得上）
-        resetHistory();
-        contentRev.n++;    // 触发歌词行重算
-      } catch (err) {}
+        /* load 现在是异步读 IndexedDB：等档真正套到 state 上再重播种撤销历史
+           （旧版同步 load 可以直接跟在后面，异步化后必须挂 then） */
+        load().then(() => {
+          resetHistory();
+          contentRev.n++;    // 触发歌词行重算
+        });
+      }).catch(() => {});
     });
   } else {
     window.addEventListener('storage', e => {

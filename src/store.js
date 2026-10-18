@@ -11,6 +11,11 @@ export const LS_KEY = 'knitChartProto1';
    浮窗据此秒级跟随。绝不为此全量刷 LS_KEY——那会把大图解的整树序列化
    （几百毫秒）压进每次计数器输入，是「文字解里改进度很卡」的根源 */
 export const PROG_KEY = LS_KEY + '.prog';
+/* 落盘信号键：主档改存 IndexedDB（异步、无跨窗口事件），localStorage 只留
+   这个几十字节的 rev 信号——storage 事件仍是唯一跨窗口通知手段，浮窗收到
+   后从 IndexedDB 重读全量。rev 严格递增，接收方据此丢弃迟到的旧事件 */
+export const REV_KEY = LS_KEY + '.rev';
+let persistRev = 0;
 /* 进度变更时间戳：随 PROG_KEY 与整档落盘发出，接收方据此丢弃
    比本端最近一次本地操作更旧的「回声」（快速连点时旧绝对值会把
    新进度拉回去再逐条重放） */
@@ -304,6 +309,7 @@ export function deleteWork(id) {
   }
   invalidatePersist();
   save();
+  flushPersist(); // 删作品不可逆（无跨重启撤销）：立即落盘
   return true;
 }
 export function addChart(name) {
@@ -343,6 +349,7 @@ export function deleteChart(id) {
     resetHistory();
   }
   save();
+  flushPersist(); // 删图解不可逆（无跨重启撤销）：立即落盘
   return true;
 }
 
@@ -541,12 +548,57 @@ function flashInfo(text) {
    锁定切换、重命名、收藏、面板偏好、换配色/换工具等不产生历史节点，不计时。
    图解切换时 resetHistory 会用当前图解重新播种，故无需再记图表 id */
 
-/* ---------------- localStorage 节流写入 ----------------
-   persistObject() 会 stringify 整个作品树（所有作品所有图解），大图解时是
+/* ---------------- IndexedDB 主档 ----------------
+   主档是整树 JSON（大图解时数 MB），localStorage 5~10MB 配额是硬上限；
+   IndexedDB 按磁盘空间百分比分配（数百 MB 起步）且写入走浏览器进程。
+   手写 20 行 KV 即可，无需引入库 */
+const IDB_NAME = 'knitChartKV';
+const IDB_STORE = 'kv';
+let idbPromise = null;
+function idbOpen() {
+  if (!idbPromise) {
+    idbPromise = new Promise((res, rej) => {
+      try {
+        const rq = indexedDB.open(IDB_NAME, 1);
+        rq.onupgradeneeded = () => {
+          if (!rq.result.objectStoreNames.contains(IDB_STORE)) rq.result.createObjectStore(IDB_STORE);
+        };
+        rq.onsuccess = () => res(rq.result);
+        rq.onerror = () => rej(rq.error);
+      } catch (e) { rej(e); }
+    });
+    idbPromise.catch(() => { idbPromise = null; }); // 打开失败允许下次重试
+  }
+  return idbPromise;
+}
+function idbWrap(rq) {
+  return new Promise((res, rej) => { rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); });
+}
+export async function idbGet(key) {
+  const db = await idbOpen();
+  return idbWrap(db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(key));
+}
+async function idbPut(key, val) {
+  const db = await idbOpen();
+  return idbWrap(db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(val, key));
+}
+export async function idbDel(key) {
+  const db = await idbOpen();
+  return idbWrap(db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).delete(key));
+}
+/* 自测/浮窗内容同步用：读当前主档 JSON 并解析（不动 state） */
+export async function readPersistJson() {
+  let raw = null;
+  try { raw = await idbGet(LS_KEY); } catch (e) {}
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+/* ---------------- IndexedDB 节流写入 ----------------
+   persistWrite() 会 stringify 整个作品树（所有作品所有图解），大图解时是
    一笔可观的主线程开销（实测 40k 放置 ~300ms）。策略：距上次 save 超过
-   2s（用户停手）才真正写；连续编辑期间每次只顺延 3s，自首次待写起 30s
+   12s（用户停手）才真正写；连续编辑期间每次只顺延 3s，自首次待写起 30s
    硬上限——保证编辑动作本身永不被落盘卡住，崩溃丢档窗口也不超过 30s。
-   Ctrl+S / 页面隐藏/关闭前强制刷出 */
+   Ctrl+S / 页面隐藏/关闭前强制刷出。写成功后 bumpRev() 发跨窗口信号 */
 const PERSIST_DELAY = 12000;
 const PERSIST_ACTIVE_DELAY = 3000;
 const PERSIST_MAX_DELAY = 30000;
@@ -642,11 +694,17 @@ function ownerWatch() {
   if (!ownerWarned && Date.now() - ownerFirstSeen > OWNER_TTL + 1000) ownerWarn();
 }
 if (CAN_PERSIST && typeof window !== 'undefined') setInterval(ownerWatch, 3000);
+function bumpRev() { // 主档写成功后发跨窗口信号（storage 事件只通知其他窗口）
+  try { localStorage.setItem(REV_KEY, JSON.stringify({ rev: ++persistRev, t: Date.now() })); } catch (e) {}
+}
+function persistWrite() { // 真正落盘：IndexedDB 主档 + localStorage 信号键
+  return idbPut(LS_KEY, buildPersistJson()).then(bumpRev).catch(() => {});
+}
 function forcePersist() {
   if (!CAN_PERSIST) return;
   if (persistTimer) { clearTimeout(persistTimer); persistTimer = 0; }
   if (!ownerAcquire()) return;
-  try { localStorage.setItem(LS_KEY, buildPersistJson()); } catch (e) {}
+  persistWrite();
 }
 function persistNow() {
   if (!persistTimer) return;
@@ -657,14 +715,15 @@ function persistNow() {
     return;
   }
   if (!ownerAcquire()) return;
-  try { localStorage.setItem(LS_KEY, buildPersistJson()); } catch (e) {}
+  persistWrite();
 }
 /* 自测/关键路径用：立即落盘。显式调用不受 CAN_PERSIST 限制
-   （守卫只拦浮窗/承载窗的自动落盘：beforeunload / visibilitychange / 节流写） */
+   （守卫只拦浮窗/承载窗的自动落盘：beforeunload / visibilitychange / 节流写）。
+   返回写入 Promise：自测需等 IndexedDB 写完再断言 */
 export function flushPersist() {
   if (persistTimer) { clearTimeout(persistTimer); persistTimer = 0; }
-  if (CAN_PERSIST && !ownerAcquire()) return; // 有别的活实例持锁时同样让位
-  try { localStorage.setItem(LS_KEY, buildPersistJson()); } catch (e) {}
+  if (CAN_PERSIST && !ownerAcquire()) return Promise.resolve(); // 有别的活实例持锁时同样让位
+  return persistWrite();
 }
 function schedulePersist() {
   lastSaveAt = Date.now();
@@ -775,10 +834,39 @@ function pruneMissingSymbolsAll() {
   }
 }
 
+/* load 拆两层：loadOnce 取原始 JSON（IndexedDB 主档 + 旧 localStorage 档迁移），
+   applyPersist 是同步应用逻辑。跨窗口重读是异步且可能并发的（信号事件密集时），
+   用串行链保证两次 load 不交错重建 state.works（旧档「整树翻倍」教训同理） */
+let loadChain = Promise.resolve();
 export function load() {
+  const p = loadChain.then(loadOnce);
+  loadChain = p.catch(() => {});
+  return p;
+}
+async function loadOnce() {
+  let raw = null;
+  try { raw = await idbGet(LS_KEY); } catch (e) {}
+  if (raw == null) {
+    /* 迁移：IndexedDB 还没有主档时，把旧版 localStorage 档迁入并清除大键
+       （配额大头在它身上）。IDB 写失败仍用旧档应用，保证本会话可用 */
+    let legacy = null;
+    try { legacy = localStorage.getItem(LS_KEY); } catch (e) {}
+    if (legacy != null) {
+      try { await idbPut(LS_KEY, legacy); try { localStorage.removeItem(LS_KEY); } catch (e2) {} } catch (e) {}
+      raw = legacy;
+    }
+  } else {
+    /* 主档已在 IndexedDB：清掉可能残留的旧 localStorage 大键（迁移中断遗留），
+       避免配额误报；绝不用它回滚主档（可能是旧版应用写下的过时骨架） */
+    try { if (localStorage.getItem(LS_KEY) != null) localStorage.removeItem(LS_KEY); } catch (e) {}
+  }
+  let s = null;
+  try { s = JSON.parse(raw); } catch (e) {}
+  try { applyPersist(s); } catch (e) { ensureSkeleton(); }
+}
+function applyPersist(s) {
   try {
-    const s = JSON.parse(localStorage.getItem(LS_KEY));
-    /* 必须先清空再重建：load 会被浮窗在每次 LS_KEY 存储事件里重复调用
+    /* 必须先清空再重建：load 会被浮窗在每次存储信号里重复调用
        （跨窗口同步），若不清空，works 会整体翻倍追加，而 activeWorkId 命中
        排在前面的旧副本 → projectActive 把织进度/图面回滚成旧档（浮窗进度
        弹回旧值、主窗口进度被旧基准的步进不断推高的根源） */
@@ -1065,6 +1153,7 @@ export function importJson(text, asWorkName) {
     if (!charts) throw new Error('文件中没有有效的图解');
     pruneMissingSymbolsAll();
     switchWork(lastId);
+    flushPersist(); // 导入是一次性大变更：立即落盘，不等 12s 节流
     return { works: worksIn.length, charts };
   }
   if (!Number.isFinite(+s.rows) || !Number.isFinite(+s.cols)) {
@@ -1086,12 +1175,14 @@ export function importJson(text, asWorkName) {
     projectActive();
     resetHistory();
     save();
+    flushPersist(); // 导入是一次性大变更：立即落盘，不等 12s 节流
     return { works: 1, charts: 1 };
   }
   const w = activeWork();
   w.charts.push(c);
   pruneMissingSymbolsAll();
   switchChart(c.id);
+  flushPersist(); // 导入是一次性大变更：立即落盘，不等 12s 节流
   return { works: 0, charts: 1 };
 }
 
@@ -1127,6 +1218,7 @@ export async function importChartCode(code) {
   w.charts.push(c);
   pruneMissingSymbolsAll();
   switchChart(c.id);
+  flushPersist(); // 导入是一次性大变更：立即落盘，不等 12s 节流
   return c.id;
 }
 
@@ -1668,6 +1760,7 @@ export function upsertCustom(data) {
   }
   save();
   markCanvasAllDirty(); // 符号定义变了，所有含它的瓦片都要重画
+  flushPersist(); // 符号定义若未落盘即关窗，引用它的放置会在下次载入被 prune：立即落盘
   return data.id;
 }
 export function deleteCustom(id) {
@@ -1682,6 +1775,7 @@ export function deleteCustom(id) {
   markCanvasAllDirty();
   invalidatePersist(); // 跨作品清理，全部落盘缓存失效
   save();
+  flushPersist(); // 级联清理不可逆（无跨重启撤销）：立即落盘
 }
 
 /* ---------------- 自定义符号编辑器开关 ---------------- */

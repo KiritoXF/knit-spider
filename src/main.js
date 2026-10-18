@@ -13,15 +13,16 @@ import { togglePip } from './pipLyrics.js';
 
 /* ---------------- 启动 ---------------- */
 initInpProbe(); // INP 自检探针：仅 ?inp=1 时启用（性能诊断用，普通使用零开销）
-load(); // 载入 localStorage（自动迁移旧档），并清理引用了不存在符号的放置
-
+/* load 现在是异步读 IndexedDB（自动迁移旧 localStorage 档）：resetHistory 要以
+   载入后的状态为撤销起点，整段启动流程必须挂在 load 完成之后 */
+load().then(() => {
 /* 桌面端教程 popover 的承载窗（?popdoc=1）：透明置顶小窗，内容由主浮窗 emit 过来 */
 if (location.search.indexOf('popdoc=1') >= 0) {
   document.body.classList.add('lp-popdoc');
   createApp(PopDoc).mount('#app');
   initTutorials(); // objectURL 虽由主浮窗创建，但文字教程兜底查内存库
 /* 桌面端歌词浮窗是独立窗口，加载同一份 HTML 带 ?widget=1：只挂 LyricPip，
-   数据经 widgetSync 通过 localStorage storage 事件与主窗口互通 */
+   数据经 widgetSync 信号键 + IndexedDB 与主窗口互通 */
 } else if (location.search.indexOf('widget=1') >= 0) {
   initSync('widget');
   ui.pipOpen = true; // knitEta 据此开启剩余时间采样
@@ -45,3 +46,4 @@ if (location.search.indexOf('popdoc=1') >= 0) {
   // 自测试：访问 ?test=1 时自动跑断言
   if (location.search.indexOf('test=1') >= 0) runSelfTest();
 }
+});

@@ -10,6 +10,7 @@ import {
   setDoneRows, stepDoneRows,
   activeWork, activeChart, addChart, switchChart, renameChart, deleteChart,
   addWork, deleteWork, serializeWork, importJson, importArchive, buildWorkZip, importChartCode, load, save, flushPersist,
+  readPersistJson, idbDel,
   contentRev, chartCheckCode,
   THEMES, setTheme,
 } from './store.js';
@@ -40,6 +41,7 @@ export async function runSelfTest() {
   };
 
   localStorage.clear();
+  await idbDel(LS_KEY); // 主档在 IndexedDB：连旧档一起清空，保证全量冷启动
   resetStateForTest();
   ui.view = 'editor'; // 自测试需要画布 DOM，先切到编辑页
   await tick();
@@ -185,8 +187,9 @@ export async function runSelfTest() {
     const el = document.querySelector('.rownum[data-r="3"]');
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await tick();
+    await flushPersist();
     const ok = state.highlight === 3 && !!document.querySelector('#hlLayer rect') &&
-      (flushPersist(), JSON.parse(localStorage.getItem(LS_KEY)).highlight === 3);
+      (await readPersistJson()).highlight === 3;
     sc.scrollTop = 0;
     if (window.__chartVis) window.__chartVis.update();
     await tick();
@@ -559,13 +562,14 @@ export async function runSelfTest() {
   });
 
   await t('legacy-ls-migrate', async () => {
-    // 旧版扁平 localStorage 数据 → 载入时自动包装为单作品单图解
+    // 旧版扁平 localStorage 数据 → IndexedDB 无主档时自动迁入并包装为单作品单图解
+    await idbDel(LS_KEY); // 迁移只在 IndexedDB 无主档时触发
     localStorage.setItem(LS_KEY, JSON.stringify({
       rows: 20, cols: 15,
       placements: [{ sym: 'knit', col: 1, row: 1, w: 1, h: 1 }],
       borders: [], colOverrides: { '2': 'X' },
     }));
-    load();
+    await load();
     await tick();
     const ok = state.works.length === 1 && state.works[0].charts.length === 1 &&
       state.works[0].name === '我的作品' && state.cols === 15 && state.rows === 20 &&
@@ -877,8 +881,8 @@ export async function runSelfTest() {
     await new Promise(r => setTimeout(r, 12));
     applyAt(2, 1); await tick();
     const uEdit2 = activeChart().updatedAt;
-    flushPersist();
-    const saved = JSON.parse(localStorage.getItem(LS_KEY))
+    await flushPersist();
+    const saved = (await readPersistJson())
       .works[0].charts.find(x => x.id === activeChart().id).updatedAt;
     resetStateForTest(); await tick();
     // saved 是第二次编辑落盘的值，应等于 uEdit2；锁定切换期间不被刷新
@@ -896,8 +900,10 @@ export async function runSelfTest() {
     next.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     next.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await tick();
+    await flushPersist();
+    const savedDone = (await readPersistJson()).works[0].charts[0].doneRows;
     const okStep = state.doneRows === 2 && activeChart().updatedAt === tCreate &&
-      (flushPersist(), JSON.parse(localStorage.getItem(LS_KEY)).works[0].charts[0].doneRows === 2) &&
+      savedDone === 2 &&
       document.getElementById('doneRowsText').textContent.replace(/\s/g, '') === '2/36' &&
       document.getElementById('btnDonePrev').disabled === false;
     // 撤回应只回退图面内容，不动织进度（进度不进撤销快照）
@@ -1044,20 +1050,22 @@ export async function runSelfTest() {
     probe.remove();
     const okCss = cMist !== cSage && cSage === 'rgb(63, 122, 95)'; // #3f7a5f
     setTheme('mist'); await tick();
+    await flushPersist();
+    const savedTheme = (await readPersistJson()).theme;
     const okSet = state.theme === 'mist' &&
       document.documentElement.dataset.theme === 'mist' &&
-      (flushPersist(), JSON.parse(localStorage.getItem(LS_KEY)).theme === 'mist');
+      savedTheme === 'mist';
     const t0 = activeChart().updatedAt;
     setTheme('mauve'); await tick();
     const okNoTrack = activeChart().updatedAt === t0; // 换配色不算「最后更改」
     setTheme('nope'); await tick();
     const okBad = state.theme === 'mauve';            // 未知 id 直接忽略
-    // 模拟刷新：先把 mauve 落盘（写入已防抖），再清掉内存状态，load() 应从 localStorage 还原
-    flushPersist();
+    // 模拟刷新：先把 mauve 落盘（写入已防抖），再清掉内存状态，load() 应从 IndexedDB 还原
+    await flushPersist();
     state.theme = 'sage';
     document.documentElement.dataset.theme = 'sage';
     state.works = []; state.activeWorkId = null; state.activeChartId = null;
-    load(); await tick();
+    await load(); await tick();
     const okLoad = state.theme === 'mauve' &&
       document.documentElement.dataset.theme === 'mauve';
     resetStateForTest(); await tick();

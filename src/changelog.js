@@ -2,6 +2,15 @@
    发新版本时：这里加一段 → CHANGELOG.md 加一段 → package.json version 跟进 */
 export const CHANGELOG = [
   {
+    version: 'v0.2.10',
+    date: '2026-10-18',
+    items: [
+      '存档迁移到 IndexedDB：容量上限从浏览器常见的 5 MB 提升到数百 MB，大图解不再触顶；旧档自动迁移，浮窗同步机制不变',
+      '导入作品/图解、删除作品/图解、自定义符号增删改为立即落盘，不再等最长 12 秒的节流',
+      '首页页脚移除「本地存储占用」指示（已无 5 MB 上限问题）',
+    ],
+  },
+  {
     version: 'v0.2.9',
     date: '2026-10-18',
     items: [
