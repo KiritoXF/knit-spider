@@ -16,7 +16,7 @@ A fully client-side knitting chart editor for hand knitters. Its signature featu
 
 - Two-level structure: one project can hold multiple charts (e.g. body, sleeves, neckline)
 - Home page (project manager): card view with chart count and last-edited time; click a card to open the project, click a chart chip to jump straight to that chart; archive-download / rename / delete right on the card; the last tile in the grid is "＋ New project"; the footer keeps the copyright and project link centered, with a live local-storage usage indicator on the right
-- Chart tabs: click to switch, double-click to rename inline, delete, create (auto-named "Chart N")
+- Chart tabs: click to switch, double-click to rename inline, delete, create (auto-named "Chart N"); when there are more tabs than fit, paging arrows appear on both sides for whole-page scrolling
 - Chart locking: one-click lock from the tab bar. When locked, all editing operations (place / erase / paste / annotate / grid resize / undo-redo) are blocked to protect finished charts; a lock icon shows on the tab and the state is saved with the archive
 - Last-changed time: shown permanently at the right end of the top bar. Chart-content operations (place / erase / border / annotation / column labels / grid / undo-redo) update it; non-content operations (lock/unlock, rename, favorite) do not. Saved with the archive
 - Themes: four hand-picked color themes (sage / rose / mist / mauve), switchable from the top bar "More" menu; the choice is remembered locally
@@ -44,7 +44,8 @@ A fully client-side knitting chart editor for hand knitters. Its signature featu
 - Border: drag-select to draw a pattern border box
 - Eraser: click or drag to remove symbols and borders
 - Annotation: attach text to a selected region (e.g. "Pattern A · 12-st repeat"), displayed as a cyan dashed box above the region
-- Copy / paste: the pasted block aligns its bottom-left corner to the clicked cell
+- Multi-color charting: each chart carries its own palette (up to 16 named colors); the toolbar color picker (swatches / native picker / hex input, with naming) sets the placement color, and the brush tool recolors placed symbols by click or drag; a chart-settings toggle draws translucent color blocks; SVG export, the text chart, archives and undo history all carry the colors
+- Copy / paste: the pasted block aligns its bottom-left corner to the clicked cell; copying a blank selection is allowed — pasting it replaces the target footprint wholesale, so blank cells can clear symbols off the target area
 - Undo / redo — all chart operations go into history
 
 ### Written Instructions
@@ -57,6 +58,7 @@ A fully client-side knitting chart editor for hand knitters. Its signature featu
 - Hover a stitch name to pop up its how-to knit tutorial — an image, a text note, or both side by side; click the image to view it full size
 - RS / WS rows are derived automatically from the row 1 starting side (consistent with the canvas row-number position): RS rows read right→left as-is; WS rows read left→right with automatic conversion (knit ↔ purl swapped, twists become their purled counterparts, etc.)
 - Blank cells are treated as background stitches (purled on RS rows, knitted on WS rows); consecutive identical stitches merge with a count; row prefix `r3:`, WS rows flagged "WS"
+- When symbols use several colors, the quick reference and row body group by symbol + color with color chips (color names shown when set), and the legend splits by color
 - File name: `ProjectName_ChartName.txt`
 
 ### Stitch Tutorials
