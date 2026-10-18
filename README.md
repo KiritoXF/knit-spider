@@ -44,7 +44,7 @@ A fully client-side knitting chart editor for hand knitters. Its signature featu
 - Border: drag-select to draw a pattern border box
 - Eraser: click or drag to remove symbols and borders
 - Annotation: attach text to a selected region (e.g. "Pattern A · 12-st repeat"), displayed as a cyan dashed box above the region
-- Multi-color charting: each chart carries its own palette (up to 16 named colors); the toolbar color picker (swatches / native picker / hex input, with naming) sets the placement color, and the brush tool recolors placed symbols by click or drag; a chart-settings toggle draws translucent color blocks; SVG export, the text chart, archives and undo history all carry the colors
+- Multi-color charting: each chart carries its own palette (unlimited colors, scrollable panel when many); the toolbar color picker (swatches / native picker / hex input, with naming) sets the placement color, and the brush tool recolors placed symbols by click or drag; the "View" menu toggles translucent color blocks; SVG export, the text chart, archives and undo history all carry the colors
 - Copy / paste: the pasted block aligns its bottom-left corner to the clicked cell; copying a blank selection is allowed — pasting it replaces the target footprint wholesale, so blank cells can clear symbols off the target area
 - Undo / redo — all chart operations go into history
 

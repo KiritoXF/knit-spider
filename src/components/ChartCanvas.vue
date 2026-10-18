@@ -81,6 +81,7 @@ const canvasStyle = computed(() => ({
 const toolClass = computed(() => {
   if (state.tool === 'erase') return 'cur-erase';
   if (state.tool === 'brush') return 'cur-brush';
+  if (state.tool === 'picker') return 'cur-picker';
   if (state.tool === 'paste') return 'cur-paste';
   if (state.tool === 'select') return 'cur-select';
   if (state.tool === 'border') return 'cur-border';

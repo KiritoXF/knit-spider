@@ -333,11 +333,6 @@ function onDownload() {
               <button id="tcDownload" class="tcm-btn" @click="onDownload">下载 txt</button>
               <span v-if="copied" class="tcm-flash">已复制</span>
             </div>
-            <p class="tcm-hint">
-              正面行从右往左织（按图解原样读）；反面行从左往右织，符号按「反面织法」换算（默认下针↔上针、扭针互换，可在符号库调整）。
-            </p>
-            <p class="tcm-hint">空白格为背景针：正面织上针、反面织下针。</p>
-            <p class="tcm-hint"><b>虚线下划线</b> = 有织法教程（图片或文字说明），悬停针名即可查看。</p>
           </div>
         </aside>
         <!-- 右栏：文字解正文，独立滚动；大图解重算期间显示生成过渡 -->

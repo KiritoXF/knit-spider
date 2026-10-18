@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "node scripts/tauri-before-build.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -28,7 +28,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [],
     "icon": ["icons/icon.ico", "icons/32x32.png", "icons/128x128.png"]
   }
 }

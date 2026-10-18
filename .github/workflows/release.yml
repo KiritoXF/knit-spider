@@ -33,9 +33,13 @@ jobs:
           # 注意 ${version} 必须加大括号：$version_x64 会被 PowerShell 当成
           # 一个叫 version_x64 的未定义变量（曾导致附件为空）
           Copy-Item src-tauri/target/release/knitchart.exe "SpiderKnit_${version}_x64.exe"
+          # 网页版（单文件 HTML，双击浏览器即开）一并附到 Release
+          Copy-Item dist/knitting-chart.html "SpiderKnit_${version}.html"
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: SpiderKnit_*_x64.exe
+          files: |
+            SpiderKnit_*_x64.exe
+            SpiderKnit_*.html
           fail_on_unmatched_files: true # 附件匹配不到直接报错，不再静默空发
           generate_release_notes: true

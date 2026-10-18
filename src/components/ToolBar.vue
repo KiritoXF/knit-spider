@@ -4,7 +4,7 @@ import {
   state, selectTool, undo, redo, histState,
   copySelection, deleteSelection, addAnnotation, clipSel, clipBoard,
   stepDoneRows, flushPersist,
-  setColorIdx, editPaletteColor, addPaletteColor, removePaletteColor,
+  setColorIdx, editPaletteColor, addPaletteColor, removePaletteColor, toggleShowBlocks,
 } from '../store.js';
 import { appPrompt, toast, ui } from '../ui.js';
 
@@ -67,12 +67,14 @@ function onPickInput(e) { // 原生取色器 → 同步 hex 框 + 应用
   onHexInput();
 }
 function onAddColor() {
-  if (state.palette.length >= 16) { toast('调色板最多 16 色，可先删除不用的颜色'); return; }
   addPaletteColor('#888888', '');
   syncEd(state.colorIdx);
 }
 function onDelColor() {
-  if (state.palette.length <= 1) { toast('至少保留 1 个颜色'); return; }
+  if (!state.palette[selIdx.value] || state.palette[selIdx.value].d) {
+    toast('默认颜色不允许删除，以免误删', 'info');
+    return;
+  }
   removePaletteColor(selIdx.value);
   syncEd(Math.min(selIdx.value, state.palette.length - 1));
 }
@@ -107,10 +109,15 @@ const palBtn = ref(null);
 const viewBtn = ref(null);
 const viewItems = [
   { key: 'viewHoverSame', label: '悬浮高亮同色', tip: '鼠标悬浮任意符号格，图解里所有同色符号一起高亮' },
+  { key: 'showBlocks', label: '半透明色块底', tip: '在符号下方垫半透明颜色块，多色花样的颜色分区一目了然' },
 ];
 function onViewToggle(key) {
-  state[key] = !state[key];
-  if (key === 'viewHoverSame' && !state[key]) state.hoverC = null;
+  if (key === 'showBlocks') { toggleShowBlocks(); }
+  else {
+    state[key] = !state[key];
+    if (key === 'viewHoverSame' && !state[key]) state.hoverC = null;
+  }
+  viewOpen.value = false; // 选中/取消后立即收起菜单
 }
 
 /* 全局快捷键：Ctrl+Z / Ctrl+Y(或 Ctrl+Shift+Z) / Ctrl+C / Ctrl+V / Ctrl+S / Delete / Esc */
@@ -179,6 +186,15 @@ onUnmounted(() => {
           <path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/>
           <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" fill="currentColor" stroke="none"/>
         </svg></button>
+      <button class="tb-btn" data-toolbtn="picker" title="取色器：点击格子，把当前颜色换成那格符号的颜色"
+        :class="{ 'tb-btn-on': state.tool === 'picker' }"
+        @click="selectTool('picker')">
+        <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m2 22 1-1h3l9-9"/>
+          <path d="M3 21v-3l9-9"/>
+          <path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/>
+        </svg></button>
       <button class="tb-btn" data-toolbtn="border" title="边框：拖选矩形画粗外框"
         :class="{ 'tb-btn-on': state.tool === 'border' }"
         @click="selectTool('border')">
@@ -195,27 +211,29 @@ onUnmounted(() => {
     <div class="tb-menu-wrap">
       <button ref="palBtn" class="tb-btn" :class="{ 'tb-btn-on': palOpen }"
         title="颜色：选当前绘制色（放置的符号按此色显示），可编辑/新增调色板颜色" @click="togglePal">
-        <span class="tb-cur-dot" :style="{ background: curEntry.hex }"></span>{{ curLabel }}
+        <span class="tb-cur-dot" :style="{ background: curEntry.hex }"></span><span class="tb-cur-name">{{ curLabel }}</span>
       </button>
       <Teleport to="body">
         <div v-if="palOpen" class="tb-menu tb-panel pal-panel" :style="{ position: 'fixed', ...palPos }" @mousedown.stop>
-        <div class="tb-panel-head">调色板<span class="tb-panel-lock">{{ state.palette.length }}/16</span></div>
+        <div class="tb-panel-head">调色板
+          <span class="tb-panel-lock">{{ state.palette.length }} 色</span>
+          <button class="pal-add pal-add-head" title="新增颜色" @click="onAddColor">+</button>
+        </div>
         <div class="pal-grid">
           <button v-for="(col, i) in state.palette" :key="i" class="pal-swatch"
             :class="{ 'pal-swatch-on': i === state.colorIdx }" :style="{ background: col.hex }"
             :title="(col.name || col.hex) + '（点击选为当前绘制色）'" @click="onPickColor(i)"></button>
-          <button class="pal-add" title="新增颜色（最多 16 色）" @click="onAddColor">+</button>
         </div>
         <div class="pal-edit">
           <input type="color" :value="state.palette[selIdx] && state.palette[selIdx].hex"
             title="取色器" @input="onPickInput">
           <input class="tb-input pal-hex" :value="edHex" placeholder="#RRGGBB" spellcheck="false"
             title="16 进制色值（#RRGGBB，输入合法即生效）" @input="edHex = $event.target.value; onHexInput()">
-          <input class="tb-input pal-name" :value="edName" placeholder="颜色名（如：枣红）"
-            title="颜色名：文字解与图例里显示" @input="edName = $event.target.value; onNameInput()">
-          <button class="tb-btn" title="删除该颜色（已用该色的符号回退默认色）" @click="onDelColor">删除</button>
+          <input class="tb-input pal-name" :value="edName" placeholder="颜色名（如：枣红）" maxlength="16"
+            title="颜色名（最长 16 字）" @input="edName = $event.target.value; onNameInput()">
+          <button class="tb-btn" :disabled="!state.palette[selIdx] || state.palette[selIdx].d"
+            title="删除该颜色（默认颜色不可删除；已用该色的符号回退默认色）" @click="onDelColor">删除</button>
         </div>
-        <p class="pal-hint">点击圆点选为当前绘制色：放置新符号带色；选「染刷」工具可把已有符号刷成当前色（0 号「原色」恢复符号本色）。</p>
         </div>
       </Teleport>
     </div>

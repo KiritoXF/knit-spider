@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue';
-import { state, isChartLocked, resizeGrid, clearColLabels, setRowStartSide, toggleShowBlocks } from '../store.js';
+import { state, isChartLocked, resizeGrid, clearColLabels, setRowStartSide } from '../store.js';
 import { toast } from '../ui.js';
 
 /* 图解属性（设一次基本不动）：网格尺寸、第 1 行起始侧、清除列号。
@@ -63,14 +63,6 @@ function onClearCol() {
       <button id="btnClearCol" class="tb-btn" :disabled="locked"
         title="清除全部手动列号标注" @click="onClearCol">清除列号</button>
       <span class="tb-panel-hint mb-0">单击画布列下方可逐个标注</span>
-    </div>
-
-    <div class="tb-panel-row">
-      <span class="tb-panel-label">多色色块底</span>
-      <button id="btnShowBlocks" class="tb-btn" :class="{ 'tb-btn-primary': state.showBlocks }" :disabled="locked"
-        title="在符号下方垫半透明颜色块，多色花样的颜色分区一目了然"
-        @click="toggleShowBlocks">{{ state.showBlocks ? '已开启' : '已关闭' }}</button>
-      <span class="tb-panel-hint mb-0">多色编织时建议开启查看分区</span>
     </div>
   </div>
 </template>
