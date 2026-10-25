@@ -249,7 +249,7 @@ function onDownload() {
 <template>
   <div v-if="ui.textChartOpen" class="fixed inset-0 bg-black/30 items-center justify-center"
     style="z-index:50;display:flex" @mousedown.self="close">
-    <div class="modal-shell tcm-shell">
+    <div class="modal-shell tcm-shell" role="dialog" aria-modal="true" aria-label="文字解" data-modal>
       <div class="modal-head">
         <h2 class="modal-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -338,7 +338,7 @@ function onDownload() {
         <!-- 右栏：文字解正文，独立滚动；大图解重算期间显示生成过渡 -->
         <div class="tcm-main">
           <div v-if="genLoading" id="tcmGen" class="tcm-gen">
-            <div class="loading-yarn">🧶</div>
+            <span class="loading-ring" aria-hidden="true"></span>
             <span>正在生成文字解…</span>
           </div>
           <div v-else id="textChartView" ref="docEl" class="tcm-doc" @scroll.passive="hidePop">

@@ -258,12 +258,19 @@ watch(() => ui.editorOpen, v => {
 <template>
   <div v-if="ui.symbolOpen" class="fixed inset-0 bg-black/30 items-center justify-center"
     style="z-index:50;display:flex" @mousedown.self="ui.symbolOpen = false">
-    <div class="bg-white rounded-xl shadow-2xl w-[1120px] max-w-[calc(100vw-32px)] max-h-[93vh]
-      overflow-hidden flex flex-col">
+    <!-- 高度固定：切换分类/筛选到内容少的列表时，弹窗不再跟着收缩 -->
+    <div class="bg-white rounded-xl shadow-2xl w-[1120px] max-w-[calc(100vw-32px)]
+      overflow-hidden flex flex-col" style="height:min(860px,93vh)"
+      role="dialog" aria-modal="true" aria-label="符号库" data-modal>
       <!-- 头部 -->
       <div class="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-dashed border-rose-200"
         style="background:linear-gradient(180deg,var(--acc-surface),var(--acc-surface-2))">
-        <span class="text-lg">🧩</span>
+        <span class="flex-none" style="color:var(--acc-700)">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/>
+          </svg>
+        </span>
         <div class="min-w-0">
           <h2 class="font-bold text-sm tracking-wide">符号库 · 针法字典</h2>
           <p class="text-[11px] text-gray-400 mt-0.5">左侧选符号，右侧配教程图 / 反面织法 / 移除恢复；文字解里悬停针法名即可查看教程</p>
@@ -295,7 +302,11 @@ watch(() => ui.editorOpen, v => {
           <div v-if="orphanSids.length"
             class="mx-3 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700">
             <div class="flex items-start gap-1.5">
-              <span class="flex-none">⚠️</span>
+              <svg class="flex-none w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/>
+                <path d="M12 9v4"/><path d="M12 17h.01"/>
+              </svg>
               <div class="min-w-0 flex-1">
                 <div class="font-bold">{{ orphanSids.length }} 张教程图无法匹配符号</div>
                 <div class="mt-0.5 text-amber-600/90 break-all leading-snug">
@@ -315,7 +326,7 @@ watch(() => ui.editorOpen, v => {
                 :title="it.name + '（' + it.id + '）'" @click="selId = it.id">
                 <img :src="symDataUrl(it.sym)" alt="" class="h-8 max-w-full object-contain pointer-events-none"
                   :style="it.isHidden ? 'opacity:.4' : ''">
-                <span class="text-[10px] w-full truncate text-center leading-tight"
+                <span class="text-[11px] w-full truncate text-center leading-tight"
                   :class="it.isHidden ? 'text-gray-400' : 'text-gray-600'">{{ it.name }}</span>
                 <span v-if="!it.isHidden" class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
                   :class="(mineMap.get(it.id) || {}).url ? 'bg-rose-500'
@@ -362,8 +373,7 @@ watch(() => ui.editorOpen, v => {
                 @dragover.prevent="dropOver = true" @dragleave="dropOver = false" @drop.prevent="onDrop">
                 <img v-if="sel.tutUrl" :src="sel.tutUrl" alt="" draggable="false"
                   class="max-h-[38vh] max-w-full object-contain rounded pointer-events-none select-none">
-                <div v-else class="text-center text-gray-400 text-xs leading-relaxed pointer-events-none">
-                  <div class="text-2xl mb-1">🪄</div>
+                <div v-else class="text-center text-gray-500 text-xs leading-relaxed pointer-events-none">
                   还没有「{{ sel.sym.name || sel.id }}」的教程图<br>点击下方按钮上传，或把图片直接拖到这里
                 </div>
                 <div v-if="sel.tutUrl && dropOver"
@@ -430,15 +440,14 @@ watch(() => ui.editorOpen, v => {
 
         <!-- 右侧空态：未选中符号 -->
         <div class="flex-1 min-w-0 p-5 flex flex-col items-center justify-center text-center" v-else>
-          <div class="text-4xl mb-3">🧷</div>
           <p class="text-sm text-gray-500">在左侧选一个符号</p>
-          <p class="text-[11px] text-gray-400 mt-1">可为它配教程图 / 文字说明、设置反面织法，或管理面板显示</p>
+          <p class="text-[12px] text-gray-500 mt-1">可为它配教程图 / 文字说明、设置反面织法，或管理面板显示</p>
         </div>
       </div>
 
-      <div class="px-5 py-2.5 border-t border-stone-100 text-[11px] text-gray-400 leading-relaxed">
-        🧩 内置符号「移除」只影响图解页符号面板的显示，可恢复；删除自定义符号会从所有作品图解中清除（现有 {{ state.customSymbols.length }} 个自定义符号）。
-        🖼 教程图片与文字说明保存在本机浏览器；导出作品 zip 时会一并打包，对方导入 zip 即可获得。
+      <div class="px-5 py-2.5 border-t border-stone-100 text-[11.5px] text-gray-500 leading-relaxed">
+        内置符号「移除」只影响图解页符号面板的显示，可恢复；删除自定义符号会从所有作品图解中清除（现有 {{ state.customSymbols.length }} 个自定义符号）。
+        教程图片与文字说明保存在本机浏览器；导出作品 zip 时会一并打包，对方导入 zip 即可获得。
       </div>
     </div>
     <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFiles">

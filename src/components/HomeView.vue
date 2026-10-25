@@ -1,17 +1,10 @@
 <script setup>
 import {
   state, renameWork, deleteWork, switchWork, switchChart, saveJson,
-  THEMES, themeName, setTheme,
+  THEMES, setTheme,
 } from '../store.js';
 import { ui, withLoading, appConfirm, appPrompt } from '../ui.js';
 import NewWorkModal from './NewWorkModal.vue';
-
-/* 配色切换：首页只放一个「点一下换下一套」的按钮，足够；
-   图解页在「⋯更多」里给了四套的完整菜单 */
-function cycleTheme() {
-  const i = THEMES.findIndex(t => t.id === state.theme);
-  setTheme(THEMES[(i + 1) % THEMES.length].id);
-}
 
 function openWork(w) {
   withLoading(() => { switchWork(w.id); ui.view = 'editor'; });
@@ -51,17 +44,31 @@ function fmtTime(t) {
   <div class="home">
     <header class="home-top">
       <div class="home-brand">
-        <span class="home-brand-logo">🧶</span>
+        <span class="home-brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <circle cx="11" cy="12" r="8.2"/>
+            <path d="M3 9.2c4-4 11.5-4 15 .9M3.2 13.2c4-3.6 11-4 14.2 0M5.4 17.2c4-3.8 9.6-4 12.4-.6M8 4.3c2.8 2.8 4.3 6.8 3.8 14M15.2 5.3c2 2.8 2.6 5.6 1.6 8.6"/>
+          </svg>
+        </span>
         <h1>蜘蛛织毛线</h1>
         <span class="home-count">{{ state.works.length }} 部作品</span>
       </div>
       <div class="flex items-center gap-2">
-        <button id="btnTheme" class="tb-btn" :title="`配色：${themeName(state.theme)}，点一下换下一套`"
-          @click="cycleTheme">
-          <span class="tb-sw-dot" :class="'tb-sw-' + state.theme"></span>{{ themeName(state.theme) }}
-        </button>
+        <label class="home-theme" title="配色主题">
+          <span class="tb-sw-dot" :class="'tb-sw-' + state.theme"></span>
+          <select class="tb-input home-theme-sel" :value="state.theme" aria-label="配色主题"
+            @change="setTheme($event.target.value)">
+            <option v-for="t in THEMES" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+        </label>
         <button id="btnHomeSymbols" class="tb-btn" title="符号库：教程图 / 反面织法 / 移除恢复，随作品 zip 分享"
-          @click="ui.symbolOpen = true">🧩 符号库</button>
+          @click="ui.symbolOpen = true">
+          <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/>
+          </svg>
+          符号库
+        </button>
         <button id="btnHomeChangelog" class="tb-btn" title="版本更新记录" @click="ui.changelogOpen = true">
           <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -73,11 +80,13 @@ function fmtTime(t) {
 
     <div class="home-grid">
       <div v-for="w in state.works" :key="w.id" class="work-card" :data-wid="w.id"
-        title="打开作品" @click="openWork(w)">
+        role="button" tabindex="0" :aria-label="'打开作品「' + w.name + '」'"
+        title="打开作品" @click="openWork(w)"
+        @keydown.enter.self.prevent="openWork(w)" @keydown.space.self.prevent="openWork(w)">
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
             <div class="wc-name" :title="w.name">{{ w.name }}</div>
-            <div class="text-[11px] text-gray-400 mt-0.5">
+            <div class="text-[12px] text-gray-500 mt-0.5">
               {{ w.charts.length }} 张图解<span v-if="w.updatedAt"> · {{ fmtTime(w.updatedAt) }}</span>
             </div>
           </div>

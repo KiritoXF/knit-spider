@@ -17,6 +17,9 @@ watch(() => dlg.open, async o => {
 function onKey(e) {
   if (!dlg.open) return;
   if (e.key === 'Enter') {
+    /* 焦点在按钮上时交给按钮自己响应：否则 Tab 到「取消」再按 Enter 反而会确认 */
+    const ae = document.activeElement;
+    if (ae && ae.tagName === 'BUTTON') return;
     e.preventDefault();
     dlgSettle(dlg.mode === 'prompt' ? dlg.value : true);
   } else if (e.key === 'Escape') {
@@ -31,7 +34,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKey, true));
 <template>
   <div v-if="dlg.open" class="fixed inset-0 bg-black/30 items-center justify-center"
     style="z-index:80;display:flex" @mousedown.self="dlgSettle(null)">
-    <div class="modal-shell w-[360px]" style="animation: tbMenuIn .15s ease-out">
+    <div class="modal-shell w-[360px]" style="animation: tbMenuIn .15s ease-out"
+      role="dialog" aria-modal="true" :aria-label="dlg.title" data-modal>
       <div class="modal-head">
         <h2 class="modal-title">{{ dlg.title }}</h2>
       </div>

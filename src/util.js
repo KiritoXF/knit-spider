@@ -1,6 +1,24 @@
 export const SVGNS = 'http://www.w3.org/2000/svg';
 export const CELL = 28; // 1 格在 zoom=1 时的像素
+/* 画布四周留白（格单位）：左侧/右侧行号区、上方、下方列号区 */
+export const PAD_L = 1.3, PAD_R = 1.3, PAD_T = 0.7, PAD_B = 1.0;
 export const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+
+/* 缩放时保持光标（或视口中心）下的图面内容不动。
+   画布内容尺寸与 zoom 成正比，因此用 新旧倍率比 换算滚动位置。 */
+export function zoomScrollAnchor(el, prevZoom, nextZoom, clientX, clientY) {
+  if (!el || !prevZoom || !nextZoom || Math.abs(nextZoom - prevZoom) < 1e-6) return;
+  const rect = el.getBoundingClientRect();
+  const ax = clientX == null ? rect.left + el.clientWidth / 2 : clientX;
+  const ay = clientY == null ? rect.top + el.clientHeight / 2 : clientY;
+  const cx = el.scrollLeft + (ax - rect.left);
+  const cy = el.scrollTop + (ay - rect.top);
+  const k = nextZoom / prevZoom;
+  requestAnimationFrame(() => {
+    el.scrollLeft = cx * k - (ax - rect.left);
+    el.scrollTop = cy * k - (ay - rect.top);
+  });
+}
 
 /* 外部链接统一出口：桌面端走 shell 插件（系统默认浏览器），网页端开新标签 */
 export function openExternal(url) {

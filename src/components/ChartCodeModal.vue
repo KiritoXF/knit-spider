@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { state, activeChart, importChartCode } from '../store.js';
 import { chartToCode, codeToChart } from '../chartCode.js';
-import { ui, toast } from '../ui.js';
+import { dlg, ui, toast } from '../ui.js';
 
 const mode = computed(() => ui.chartCodeMode);
 const headTitle = computed(() => {
@@ -95,7 +95,7 @@ watch(() => [ui.chartCodeOpen, ui.chartCodeMode], ([open, mode]) => {
   if (mode === 'copy') genCode();
   else { input.value = ''; preview.value = null; }
 });
-function onKey(e) { if (e.key === 'Escape') close(); }
+function onKey(e) { if (e.key === 'Escape' && ui.chartCodeOpen && !dlg.open) close(); }
 onMounted(() => {
   document.addEventListener('keydown', onKey);
   if (mode.value === 'copy') genCode();
@@ -109,7 +109,8 @@ onUnmounted(() => {
 <template>
   <div v-if="ui.chartCodeOpen" class="fixed inset-0 bg-black/30 items-center justify-center"
     style="z-index:50;display:flex" @mousedown.self="close">
-    <div class="modal-shell w-[min(560px,calc(100vw-24px))]">
+    <div class="modal-shell w-[min(560px,calc(100vw-24px))]"
+      role="dialog" aria-modal="true" aria-label="图解代码" data-modal>
       <div class="modal-head">
         <div class="min-w-0">
           <span class="text-[13.5px] font-bold" style="color:var(--acc-ink)">
@@ -127,7 +128,7 @@ onUnmounted(() => {
             末尾 8 位是校验码（与顶栏显示的一致）——两串代码校验码相同 = 图解内容完全一致。
           </p>
           <textarea id="ccCode" readonly :value="code" spellcheck="false"
-            class="w-full h-40 text-[11px] font-mono p-2.5 rounded-lg resize-y select-all"
+            class="w-full h-40 text-[12px] font-mono p-2.5 rounded-lg resize-y select-all"
             style="background:var(--acc-n50);color:var(--acc-ink);border:1px solid var(--acc-border-strong)"></textarea>
           <div class="flex items-center justify-between mt-2.5">
             <span class="text-[11px]" style="color:var(--acc-ink-3)">

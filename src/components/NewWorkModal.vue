@@ -12,6 +12,7 @@ const PRESETS = [
   { id: 'xl', label: '超大', cols: 400, rows: 400 },
   { id: 'custom', label: '自定义' },
 ];
+const STD = PRESETS.find(p => p.id === 'std');
 
 const open = ref(false);
 const name = ref('');
@@ -25,7 +26,7 @@ watch(() => ui.newWorkOpen, async o => {
   open.value = !!o;
   if (!o) return;
   name.value = '';
-  preset.value = 'std'; cols.value = 24; rows.value = 36;
+  preset.value = 'std'; cols.value = STD.cols; rows.value = STD.rows;
   await nextTick();
   if (nameInput.value) nameInput.value.focus();
 });
@@ -39,8 +40,10 @@ const clamp = v => Math.min(400, Math.max(4, Math.round(+v) || 0));
 function close() { ui.newWorkOpen = false; }
 
 function create() {
-  const c = clamp(cols.value) || 24, r = clamp(rows.value) || 36;
-  if (!c || !r) { toast('请填写画布的列数和行数', 'warn'); return; }
+  const c0 = +cols.value, r0 = +rows.value;
+  const c = clamp(c0) || 24, r = clamp(r0) || 36;
+  // 越界值不再静默改写：告诉用户实际采用的范围
+  if (c !== c0 || r !== r0) toast(`画布尺寸已限制在 4–400（${c} 列 × ${r} 行）`, 'warn');
   close();
   withLoading(() => addWork(name.value, r, c)); // 留空自动命名；建完留在首页，新卡片直接出现在网格里
 }
@@ -86,7 +89,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
 <template>
   <div v-if="open" class="fixed inset-0 bg-black/30 items-center justify-center"
     style="z-index:80;display:flex" @mousedown.self="close">
-    <div class="modal-shell w-[380px]" style="animation: tbMenuIn .15s ease-out">
+    <div class="modal-shell w-[380px]" style="animation: tbMenuIn .15s ease-out"
+      role="dialog" aria-modal="true" aria-label="新建作品" data-modal>
       <div class="modal-head">
         <h2 class="modal-title">新建作品</h2>
       </div>
@@ -109,13 +113,18 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
           <input v-model.number="rows" type="number" min="4" max="400" class="nw-num" aria-label="行数">
         </div>
 
-        <div class="flex items-center gap-2 mt-4 text-[11px] text-stone-400">
+        <div class="flex items-center gap-2 mt-4 text-[12px] text-stone-500">
           <span class="flex-1 border-t border-stone-200"></span>或者<span class="flex-1 border-t border-stone-200"></span>
         </div>
-        <button type="button" class="mt-3 w-full border border-dashed border-stone-300 rounded px-3 py-2 text-[12.5px] text-stone-600 hover:bg-stone-50 hover:border-stone-400"
+        <button type="button" class="mt-3 w-full inline-flex items-center justify-center gap-1.5 border border-dashed border-stone-300 rounded px-3 py-2 text-[12.5px] text-stone-600 hover:bg-stone-50 hover:border-stone-400"
           title="支持 .zip 作品包 / .json 存档，导入为一个新作品"
           @click="pickFile">
-          📂 从文件导入（.json / .zip）
+          <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>
+            <path d="M12 11v6"/><path d="m9 14 3 3 3-3"/>
+          </svg>
+          从文件导入（.json / .zip）
         </button>
         <input ref="fileInput" type="file" accept=".json,.zip,application/json,application/zip"
           style="display:none" @change="onFile">

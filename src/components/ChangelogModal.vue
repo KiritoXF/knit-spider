@@ -1,10 +1,10 @@
 <script setup>
 import { onMounted, onUnmounted } from 'vue';
-import { ui } from '../ui.js';
+import { ui, dlg } from '../ui.js';
 import { CHANGELOG } from '../changelog.js';
 
 function close() { ui.changelogOpen = false; }
-function onKey(e) { if (e.key === 'Escape') close(); }
+function onKey(e) { if (e.key === 'Escape' && ui.changelogOpen && !dlg.open) close(); }
 onMounted(() => document.addEventListener('keydown', onKey));
 onUnmounted(() => document.removeEventListener('keydown', onKey));
 </script>
@@ -12,7 +12,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
 <template>
   <div v-if="ui.changelogOpen" class="fixed inset-0 bg-black/30 items-center justify-center"
     style="z-index:50;display:flex" @mousedown.self="close">
-    <div class="modal-shell w-[min(440px,calc(100vw-24px))]">
+    <div class="modal-shell w-[min(440px,calc(100vw-24px))]"
+      role="dialog" aria-modal="true" aria-label="更新日志" data-modal>
       <div class="modal-head">
         <div class="min-w-0">
           <span class="text-[13.5px] font-bold" style="color:var(--acc-ink)">更新日志</span>
@@ -35,7 +36,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey));
           <div class="flex items-baseline gap-2 mb-1.5">
             <span class="text-[13px] font-extrabold" style="color:var(--acc-700)">{{ v.version }}</span>
             <span class="text-[11px]" style="color:var(--acc-ink-3)">{{ v.date }}</span>
-            <span v-if="i === 0" class="text-[10px] font-bold px-1.5 py-px rounded-full"
+            <span v-if="i === 0" class="text-[11px] font-bold px-1.5 py-px rounded-full"
               style="background:var(--acc-50);color:var(--acc-700);border:1px solid var(--acc-200)">最新</span>
           </div>
           <ul class="space-y-1.5">

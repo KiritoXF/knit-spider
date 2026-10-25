@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { state, isChartLocked, resizeGrid, clearColLabels, setRowStartSide } from '../store.js';
-import { toast } from '../ui.js';
+import { appConfirm, toast } from '../ui.js';
 
 /* 图解属性（设一次基本不动）：网格尺寸、第 1 行起始侧、清除列号。
    挂在顶栏 ⋯ 的同一锚点上，属于低频操作，不该常驻顶栏。
@@ -10,11 +10,26 @@ const inCols = ref(state.cols);
 const inRows = ref(state.rows);
 const locked = computed(() => isChartLocked());
 
-function applyResize() {
+async function applyResize() {
   const cols = Math.min(400, Math.max(4, +inCols.value || state.cols));
   const rows = Math.min(400, Math.max(4, +inRows.value || state.rows));
   inCols.value = cols; inRows.value = rows;
   if (cols === state.cols && rows === state.rows) { toast('网格尺寸没有变化'); return; }
+  /* 缩小网格会裁掉超出的内容：先算清影响范围再确认 */
+  if (cols < state.cols || rows < state.rows) {
+    const kept = p => p.col + (p.w || 1) <= cols && p.row + (p.h || 1) - 1 <= rows;
+    const lostP = state.placements.filter(p => !kept(p)).length;
+    const lostB = state.borders.filter(p => !kept(p)).length;
+    const lostA = state.annotations.filter(p => !kept(p)).length;
+    const detail = [lostP && `${lostP} 个符号`, lostB && `${lostB} 个边框`, lostA && `${lostA} 个标注`]
+      .filter(Boolean).join('、');
+    const ok = await appConfirm({
+      title: '缩小网格',
+      message: detail ? `缩小后 ${detail}会被移出画布。\n（本次会话仍可撤销）` : '缩小后画布外没有内容受到影响。',
+      okText: '仍要缩小', danger: !!detail,
+    });
+    if (!ok) { inCols.value = state.cols; inRows.value = state.rows; return; }
+  }
   resizeGrid(cols, rows);
 }
 function onClearCol() {
@@ -26,7 +41,13 @@ function onClearCol() {
   <div id="chartSettings" class="tb-menu tb-panel" role="dialog" aria-label="图解设置">
     <div class="tb-panel-head">
       图解设置
-      <span v-if="locked" class="tb-panel-lock">🔒 已锁定</span>
+      <span v-if="locked" class="tb-panel-lock">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+        </svg>
+        已锁定
+      </span>
     </div>
 
     <div v-if="locked" class="tb-panel-hint tb-panel-warn">

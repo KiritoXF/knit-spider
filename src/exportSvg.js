@@ -65,7 +65,7 @@ export function exportSvg() {
     const label = labelFor(i);
     if (label !== '')
       s.push(`<text x="${i + 0.5}" y="${rows + 0.42}" text-anchor="middle" dominant-baseline="central" ` +
-        `font-size="0.3" fill="#64748b" font-family="sans-serif">${esc(label)}</text>`);
+        `font-size="0.4" fill="#64748b" font-family="sans-serif">${esc(label)}</text>`);
   }
 
   s.push('</svg>');

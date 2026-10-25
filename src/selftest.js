@@ -16,7 +16,7 @@ import {
 } from './store.js';
 import { chartToCode, codeToChart } from './chartCode.js';
 import { putTutorial, putTutorialText, deleteTutorial, deleteTutorialText, tutorialObjectUrl, tutorialU8Entries, tutorialTextEntries } from './tutorialStore.js';
-import { ui, ed } from './ui.js';
+import { ui, ed, dlg, dlgSettle } from './ui.js';
 import { chartToTextRows } from './textChart.js';
 import { tutorialUrlForGroup, tutorialUrlForSid, tutorialTextForGroup, tutorialTextForSid } from './tutorials.js';
 import { SYMBOLS, PALETTE_ORDER } from './symbols.js';
@@ -143,8 +143,6 @@ export async function runSelfTest() {
     return r1right0 && r2left0 && leftOk && r2right && rightOk;
   });
   await t('collabel-pointerdown', async () => {
-    const oldPrompt = window.prompt;
-    window.prompt = () => '7';
     let el = document.querySelector('.colhit[data-c="4"]');
     if (!el) {
       // 诊断：虚拟化列号应在可视范围内，若缺失记录现场
@@ -161,7 +159,10 @@ export async function runSelfTest() {
       el = document.querySelector('.colhit[data-c="4"]');
     }
     el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
-    window.prompt = oldPrompt;
+    await tick(); // 列号编辑走应用内 appPrompt（AppDialog）
+    dlg.value = '7';
+    dlgSettle('7');
+    await tick();
     await tick();
     const ok = labelFor(4) === '7' && document.querySelector('.colnum[data-c="4"]').textContent === '7';
     state.colLabels = { ...state.colLabels }; delete state.colLabels['4']; await tick();

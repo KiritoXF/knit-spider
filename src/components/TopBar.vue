@@ -4,7 +4,7 @@ import {
   state, saveJson, saveChartJson, importJson, importArchive, activeWork, activeChart,
   switchWork, clearAll, THEMES, setTheme,
 } from '../store.js';
-import { ui, withLoading, appConfirm, toast } from '../ui.js';
+import { ui, withLoading, appConfirm, isModalOpen, toast } from '../ui.js';
 import { exportSvg } from '../exportSvg.js';
 import ChartTabs from './ChartTabs.vue';
 import ChartSettings from './ChartSettings.vue';
@@ -40,6 +40,11 @@ const upd = computed(() => {
    store 里，日后用更轻量的方案（如增量指纹）恢复 */
 
 function toggleMenu(k) { menu.value = menu.value === k ? '' : k; }
+/* ⋯ 同时承载「更多」与「图解设置」两层：设置打开时再点 ⋯ 应该收起 */
+function onMoreMenu() {
+  if (menu.value === 'settings') { menu.value = ''; return; }
+  toggleMenu('more');
+}
 function closeMenu() { menu.value = ''; }
 function goHome() { closeMenu(); ui.view = 'home'; }
 
@@ -65,11 +70,13 @@ function menuHelp() { closeMenu(); ui.helpOpen = true; }
 
 function onDocDown(e) {
   if (!menu.value) return;
+  /* 模态框内的点击不视为「点外面」（如图解设置里的缩小确认） */
+  if (e.target.closest && e.target.closest('[data-modal], [role="dialog"]')) return;
   const inWork = workWrap.value && workWrap.value.contains(e.target);
   const inRight = rightWrap.value && rightWrap.value.contains(e.target);
   if (!inWork && !inRight) closeMenu();
 }
-function onDocKey(e) { if (e.key === 'Escape') closeMenu(); }
+function onDocKey(e) { if (e.key === 'Escape' && !isModalOpen()) closeMenu(); }
 onMounted(() => {
   document.addEventListener('mousedown', onDocDown);
   document.addEventListener('keydown', onDocKey);
@@ -110,7 +117,12 @@ async function onClear() {
   <header class="topbar">
     <!-- 品牌：回作品管理页（作品的增删改都在那一页） -->
     <button class="tb-home" title="返回作品管理页" @click="goHome">
-      <span class="tb-home-logo" aria-hidden="true">🧶</span>
+      <span class="tb-home-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <circle cx="11" cy="12" r="8.2"/>
+          <path d="M3 9.2c4-4 11.5-4 15 .9M3.2 13.2c4-3.6 11-4 14.2 0M5.4 17.2c4-3.8 9.6-4 12.4-.6M8 4.3c2.8 2.8 4.3 6.8 3.8 14M15.2 5.3c2 2.8 2.6 5.6 1.6 8.6"/>
+        </svg>
+      </span>
       <span class="tb-home-txt">蜘蛛织毛线</span>
     </button>
 
@@ -292,8 +304,10 @@ async function onClear() {
       </button>
 
       <div class="tb-menu-wrap">
-        <button id="btnMoreMenu" class="tb-btn tb-btn-sq" :class="{ 'tb-btn-on': menu === 'more' }"
-          aria-haspopup="menu" :aria-expanded="menu === 'more'" title="更多" @click="toggleMenu('more')">
+        <button id="btnMoreMenu" class="tb-btn tb-btn-sq"
+          :class="{ 'tb-btn-on': menu === 'more' || menu === 'settings' }"
+          aria-haspopup="menu" :aria-expanded="menu === 'more' || menu === 'settings'"
+          aria-label="更多" title="更多" @click="onMoreMenu">
           <svg class="tb-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/>
           </svg>

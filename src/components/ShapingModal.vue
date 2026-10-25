@@ -7,7 +7,7 @@
    · 底部唯一「应用到图解」按顺序应用全部规则（可叠加、可撤销）。
    引擎侧减针游标自动接续之前规则减掉的边缘（跳过不编织列）。 */
 import { ref, onMounted, onUnmounted } from 'vue';
-import { ui, toast } from '../ui.js';
+import { dlg, ui, toast } from '../ui.js';
 import { state, getSym } from '../store.js';
 import {
   shaping, addRule, removeRule, applyRules, resetBaseline, ruleCode,
@@ -16,7 +16,11 @@ import {
 import SymbolArt from './SymbolArt.vue';
 
 function close() { ui.shapingOpen = false; }
-function onKey(e) { if (e.key === 'Escape') { pickId.value = null; close(); } }
+function onKey(e) {
+  if (e.key !== 'Escape' || !ui.shapingOpen || dlg.open) return;
+  if (pickId.value) { pickId.value = null; return; }
+  close();
+}
 onMounted(() => document.addEventListener('keydown', onKey));
 onUnmounted(() => document.removeEventListener('keydown', onKey));
 
@@ -49,7 +53,8 @@ function rebase() {
 <template>
   <div v-if="ui.shapingOpen" class="fixed inset-0 bg-black/30 items-center justify-center"
     style="z-index:50;display:flex" @mousedown.self="close">
-    <div class="modal-shell w-[min(700px,calc(100vw-24px))]">
+    <div class="modal-shell w-[min(700px,calc(100vw-24px))]"
+      role="dialog" aria-modal="true" aria-label="加减针" data-modal>
       <div class="modal-head">
         <div class="min-w-0">
           <span class="text-[13.5px] font-bold" style="color:var(--acc-ink)">加减针</span>

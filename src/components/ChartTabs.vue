@@ -129,15 +129,21 @@ async function onDel(c) {
 <template>
   <div v-if="work" class="chart-tabs-wrap">
     <button class="ctab-arrow" :class="{ 'is-hidden': !canL }" title="向左翻页签"
-      @click="scrollDir(-1)">‹</button>
-    <div ref="strip" class="chart-tabs" @scroll.passive="() => { updateArrows(); syncIntended(); }">
-      <div v-for="c in work.charts" :key="c.id" class="ctab"
+      aria-label="向左翻页签" @click="scrollDir(-1)">‹</button>
+    <div ref="strip" class="chart-tabs" role="tablist" aria-label="图解页签"
+      @scroll.passive="() => { updateArrows(); syncIntended(); }">
+      <div v-for="c in work.charts" :key="c.id" class="ctab" role="tab" tabindex="0"
+        :aria-selected="c.id === state.activeChartId"
+        :aria-label="c.name + (c.locked ? '（已锁定）' : '')"
         :class="{ 'ctab-on': c.id === state.activeChartId }"
-        :title="(c.id === state.activeChartId ? '当前图解（双击重命名）' : '切换到「' + c.name + '」（双击重命名）') + (c.locked ? ' · 已锁定' : '')"
-        @click="onSwitch(c)" @dblclick="startRename(c)">
+        :title="(c.id === state.activeChartId ? '当前图解（双击或 F2 重命名）' : '切换到「' + c.name + '」（双击或 F2 重命名）') + (c.locked ? ' · 已锁定' : '')"
+        @click="onSwitch(c)" @dblclick="startRename(c)"
+        @keydown.enter.self.prevent="onSwitch(c)" @keydown.space.self.prevent="onSwitch(c)"
+        @keydown.f2.self.prevent="startRename(c)">
         <input v-if="renamingId === c.id" v-model="renameText" spellcheck="false"
+          :aria-label="'重命名图解 ' + c.name"
           @blur="commitRename" @keydown.enter="commitRename" @keydown.esc="cancelRename"
-          @click.stop @dblclick.stop>
+          @keydown.stop @click.stop @dblclick.stop>
         <span v-else class="ctab-name">{{ c.name }}</span>
         <span v-if="c.locked" class="ctab-lock" title="已锁定（防止误改）">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
@@ -146,14 +152,15 @@ async function onDel(c) {
           </svg>
         </span>
         <!-- 锁定的图解不给删除入口，先解锁再删 -->
-        <span v-if="work.charts.length > 1 && !c.locked" class="ctab-x" title="删除此图解"
-          @click.stop="onDel(c)">×</span>
+        <button v-if="work.charts.length > 1 && !c.locked" type="button" class="ctab-x"
+          :aria-label="'删除图解「' + c.name + '」'" title="删除此图解"
+          @click.stop="onDel(c)">×</button>
       </div>
     </div>
     <button class="ctab-arrow" :class="{ 'is-hidden': !canR }" title="向右翻页签"
-      @click="scrollDir(1)">›</button>
-    <button class="ctab-add" title="新建图解" @click="onAdd">＋</button>
-    <button class="ctab-lockbtn" :class="{ on: curLocked }"
+      aria-label="向右翻页签" @click="scrollDir(1)">›</button>
+    <button class="ctab-add" title="新建图解" aria-label="新建图解" @click="onAdd">＋</button>
+    <button class="ctab-lockbtn" :class="{ on: curLocked }" :aria-pressed="curLocked"
       :title="curLocked ? '解锁当前图解（恢复编辑）' : '锁定当前图解（完成后防误改）'"
       @click="onToggleLock">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"

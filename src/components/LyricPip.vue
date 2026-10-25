@@ -321,7 +321,7 @@ onUnmounted(() => {
       <button class="lp-x" title="关闭浮窗" @click="onCloseWin">×</button>
     </div>
     <div class="lp-lyrics">
-      <div v-if="genLoading && !idleMode" class="tcm-gen lp-gen"><div class="loading-yarn">🧶</div><span>正在生成文字解…</span></div>
+      <div v-if="genLoading && !idleMode" class="tcm-gen lp-gen"><span class="loading-ring" aria-hidden="true"></span><span>正在生成文字解…</span></div>
       <template v-else>
         <p v-if="!rows.length && !idleMode" class="lp-empty">该图解还没有内容。</p>
         <div v-for="row in view" :key="row.r" class="lp-row lp-row-cur"

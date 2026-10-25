@@ -7,6 +7,9 @@ import { chartToCode, codeToChart, hashCustomSym } from './chartCode.js';
 import * as textChart from './textChart.js';
 
 export const LS_KEY = 'knitChartProto1';
+/* 画布缩放范围：0.05× 保证 400×400 也能「适应窗口」，2.5× 用于细看针法 */
+export const ZOOM_MIN = 0.05;
+export const ZOOM_MAX = 2.5;
 /* 织进度专用小键：主窗口改进度时立即写这里（几十字节，微秒级），
    浮窗据此秒级跟随。绝不为此全量刷 LS_KEY——那会把大图解的整树序列化
    （几百毫秒）压进每次计数器输入，是「文字解里改进度很卡」的根源 */
@@ -1622,6 +1625,8 @@ export function removePaletteColor(i) {
     if (c0 === i) { const { c: _drop, ...rest } = p; return rest; } // 回退默认色
     return c0 > i ? { ...p, c: c0 - 1 } : p;
   });
+  /* 删除的是当前色之前的颜色时，索引要跟着前移，否则笔色会悄悄变成下一色 */
+  if (state.colorIdx > i) state.colorIdx -= 1;
   if (state.colorIdx >= raw.length) state.colorIdx = raw.length - 1;
   markCanvasAllDirty();
   save(true);
@@ -1687,7 +1692,11 @@ export function clearAll() {
   markCanvasAllDirty();
   save(true);
 }
-export function setZoom(v) { state.zoom = v; save(); }
+export function setZoom(v) {
+  const n = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, +v || 1));
+  state.zoom = +n.toFixed(2);
+  save();
+}
 export function setRowStartSide(v) {
   if (guardLocked()) return;
   const nv = v === 'left' ? 'left' : 'right';

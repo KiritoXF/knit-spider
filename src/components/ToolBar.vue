@@ -1,18 +1,23 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import {
-  state, selectTool, undo, redo, histState,
+  state, getSym, selectTool, undo, redo, histState,
   copySelection, deleteSelection, addAnnotation, clipSel, clipBoard,
   stepDoneRows, flushPersist,
   setColorIdx, editPaletteColor, addPaletteColor, removePaletteColor, toggleShowBlocks,
 } from '../store.js';
-import { appPrompt, toast, ui } from '../ui.js';
+import { appConfirm, appPrompt, isModalOpen, toast, ui } from '../ui.js';
 
 /* 织进度：当前待织行 = doneRows + 1（行号自下而上，与织的方向一致） */
 const donePct = computed(() => state.rows ? Math.min(100, (state.doneRows / state.rows) * 100) : 0);
 const doneTitle = computed(() => (state.doneRows >= state.rows
   ? `已织完全部 ${state.rows} 行`
   : `已织完 ${state.doneRows} 行，当前待织第 ${state.doneRows + 1} 行`));
+/* 当前工具名：图标按钮没有文字，工具组标签常驻显示当前工具，避免只能靠悬停猜 */
+const TOOL_LABELS = {
+  select: '框选', erase: '消去', brush: '染刷', picker: '取色', border: '边框', paste: '粘贴',
+};
+const toolLabel = computed(() => TOOL_LABELS[state.tool] || (getSym(state.tool) || {}).name || '绘制');
 
 function onCopy() {
   if (!clipSel.rect) { flashHint('请先用“框选”选中要复制的区域'); return; }
@@ -51,16 +56,19 @@ function syncEd(i) {
   edHex.value = state.palette[i] ? state.palette[i].hex : '';
   edName.value = state.palette[i] ? state.palette[i].name : '';
 }
+/* 色块单击 = 选为画笔色，同时把它设为下方正在编辑的颜色（原行为） */
 function onPickColor(i) {
   setColorIdx(i);
   syncEd(i);
 }
+const hexValid = computed(() => /^#[0-9a-fA-F]{6}$/.test(edHex.value.trim()));
 function onHexInput() {
-  const v = edHex.value.trim();
-  if (/^#[0-9a-fA-F]{6}$/.test(v)) editPaletteColor(selIdx.value, v, edName.value);
+  if (hexValid.value) editPaletteColor(selIdx.value, edHex.value.trim(), edName.value);
 }
 function onNameInput() {
-  editPaletteColor(selIdx.value, state.palette[selIdx.value].hex, edName.value);
+  const p = state.palette[selIdx.value];
+  if (!p) return;
+  editPaletteColor(selIdx.value, p.hex, edName.value);
 }
 function onPickInput(e) { // 原生取色器 → 同步 hex 框 + 应用
   edHex.value = e.target.value.toUpperCase();
@@ -70,11 +78,19 @@ function onAddColor() {
   addPaletteColor('#888888', '');
   syncEd(state.colorIdx);
 }
-function onDelColor() {
-  if (!state.palette[selIdx.value] || state.palette[selIdx.value].d) {
+async function onDelColor() {
+  const p = state.palette[selIdx.value];
+  if (!p || p.d) {
     toast('默认颜色不允许删除，以免误删', 'info');
     return;
   }
+  const used = state.placements.filter(q => (q.c || 0) === selIdx.value).length;
+  const ok = await appConfirm({
+    title: '删除颜色',
+    message: `删除「${p.name || p.hex}」？${used ? `\n图中 ${used} 个符号会回退到默认色。` : ''}`,
+    okText: '删除', danger: true,
+  });
+  if (!ok) return;
   removePaletteColor(selIdx.value);
   syncEd(Math.min(selIdx.value, state.palette.length - 1));
 }
@@ -117,11 +133,13 @@ function onViewToggle(key) {
     state[key] = !state[key];
     if (key === 'viewHoverSame' && !state[key]) state.hoverC = null;
   }
-  viewOpen.value = false; // 选中/取消后立即收起菜单
+  /* 面板保持打开：两个开关可以一次调完，点外面/Esc 再收起 */
 }
 
-/* 全局快捷键：Ctrl+Z / Ctrl+Y(或 Ctrl+Shift+Z) / Ctrl+C / Ctrl+V / Ctrl+S / Delete / Esc */
+/* 全局快捷键：Ctrl+Z / Ctrl+Y(或 Ctrl+Shift+Z) / Ctrl+C / Ctrl+V / Ctrl+S / Delete / Esc
+   任何弹窗/遮罩打开时全部让路，避免在看说明时误改画布 */
 function onKey(e) {
+  if (isModalOpen()) return;
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
   const k = (e.key || '').toLowerCase();
@@ -141,6 +159,8 @@ function onKey(e) {
 }
 /* 点弹层外关闭调色板/视图菜单 */
 function onDocDown(e) {
+  /* 弹窗里的点击（如删除颜色确认）不算「点外面」，别把弹层一起收掉 */
+  if (e.target.closest && e.target.closest('[data-modal], [role="dialog"]')) return;
   if (!(e.target.closest && e.target.closest('.tb-menu-wrap'))) {
     palOpen.value = false;
     viewOpen.value = false;
@@ -162,8 +182,9 @@ onUnmounted(() => {
   <div class="toolbar">
     <!-- 工具组 -->
     <div class="tb-group">
-      <span class="tb-label">工具</span>
+      <span class="tb-label">工具 · <b class="tb-tool-now">{{ toolLabel }}</b></span>
       <button class="tb-btn" data-toolbtn="select" title="框选：拖选矩形区域，配合复制/粘贴使用"
+        aria-label="框选工具" :aria-pressed="state.tool === 'select'"
         :class="{ 'tb-btn-on': state.tool === 'select' }"
         @click="selectTool('select')">
         <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -171,6 +192,7 @@ onUnmounted(() => {
           <rect x="3.5" y="3.5" width="17" height="17" rx="2" stroke-dasharray="4 3"/>
         </svg></button>
       <button class="tb-btn" data-toolbtn="erase" title="消去：点击或拖动删除符号与边框"
+        aria-label="消去工具" :aria-pressed="state.tool === 'erase'"
         :class="{ 'tb-btn-on': state.tool === 'erase' }"
         @click="selectTool('erase')">
         <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -179,6 +201,7 @@ onUnmounted(() => {
           <path d="M22 21H7"/><path d="m5 11 9 9"/>
         </svg></button>
       <button class="tb-btn" data-toolbtn="brush" title="染刷：点击或拖过已有符号，把它整只染成当前颜色（多色编织用）"
+        aria-label="染刷工具" :aria-pressed="state.tool === 'brush'"
         :class="{ 'tb-btn-on': state.tool === 'brush' }"
         @click="selectTool('brush')">
         <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -187,6 +210,7 @@ onUnmounted(() => {
           <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" fill="currentColor" stroke="none"/>
         </svg></button>
       <button class="tb-btn" data-toolbtn="picker" title="取色器：点击格子，把当前颜色换成那格符号的颜色"
+        aria-label="取色器工具" :aria-pressed="state.tool === 'picker'"
         :class="{ 'tb-btn-on': state.tool === 'picker' }"
         @click="selectTool('picker')">
         <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -196,6 +220,7 @@ onUnmounted(() => {
           <path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/>
         </svg></button>
       <button class="tb-btn" data-toolbtn="border" title="边框：拖选矩形画粗外框"
+        aria-label="边框工具" :aria-pressed="state.tool === 'border'"
         :class="{ 'tb-btn-on': state.tool === 'border' }"
         @click="selectTool('border')">
         <svg class="tb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -221,19 +246,24 @@ onUnmounted(() => {
         </div>
         <div class="pal-grid">
           <button v-for="(col, i) in state.palette" :key="i" class="pal-swatch"
-            :class="{ 'pal-swatch-on': i === state.colorIdx }" :style="{ background: col.hex }"
+            :class="{ 'pal-swatch-on': i === state.colorIdx }"
+            :style="{ background: col.hex }"
+            :aria-label="(col.name || col.hex) + '（设为当前绘制色）'"
             :title="(col.name || col.hex) + '（点击选为当前绘制色）'" @click="onPickColor(i)"></button>
         </div>
         <div class="pal-edit">
           <input type="color" :value="state.palette[selIdx] && state.palette[selIdx].hex"
-            title="取色器" @input="onPickInput">
-          <input class="tb-input pal-hex" :value="edHex" placeholder="#RRGGBB" spellcheck="false"
+            title="取色器" @change="onPickInput">
+          <input class="tb-input pal-hex" :class="{ 'pal-hex-bad': !hexValid }" :value="edHex"
+            placeholder="#RRGGBB" spellcheck="false" aria-label="16 进制色值"
             title="16 进制色值（#RRGGBB，输入合法即生效）" @input="edHex = $event.target.value; onHexInput()">
           <input class="tb-input pal-name" :value="edName" placeholder="颜色名（如：枣红）" maxlength="16"
-            title="颜色名（最长 16 字）" @input="edName = $event.target.value; onNameInput()">
+            aria-label="颜色名" title="颜色名（最长 16 字）"
+            @input="edName = $event.target.value; onNameInput()">
           <button class="tb-btn" :disabled="!state.palette[selIdx] || state.palette[selIdx].d"
             title="删除该颜色（默认颜色不可删除；已用该色的符号回退默认色）" @click="onDelColor">删除</button>
         </div>
+        <p v-if="!hexValid" class="pal-hint pal-hint-bad">色值格式应为 #RRGGBB，当前输入尚未生效。</p>
         </div>
       </Teleport>
     </div>
@@ -308,7 +338,7 @@ onUnmounted(() => {
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 12h18" stroke-dasharray="2.5 2.5"/><path d="M8 8l4-4 4 4"/><path d="M8 16l4 4 4-4"/>
         </svg>上下</button>
-      <span v-if="clipBoard.info" class="text-[11px] text-rose-600">{{ clipBoard.info }}</span>
+      <span v-if="clipBoard.info" class="text-[12px] text-rose-600">{{ clipBoard.info }}</span>
     </div>
 
     <span class="tb-sep"></span>

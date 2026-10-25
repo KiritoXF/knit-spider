@@ -61,13 +61,14 @@ const SECTIONS = [
       { k: ['Ctrl', 'S'], d: '立即保存到本地' },
       { k: ['Delete'], d: '删除选区内容' },
       { k: ['Esc'], d: '取消选区 / 关闭弹窗' },
-      { k: ['Ctrl', '滚轮'], d: '缩放画布' },
+      { k: ['Ctrl', '滚轮'], d: '以光标为中心缩放画布' },
+      { k: ['中键拖动'], d: '平移画布（左下「适应」可整图显示）' },
     ],
   },
   {
     t: '图解与作品', ico: 'layers', tone: 'ico-green', wide: true,
     items: [
-      '顶栏页签切换图解，双击页签名可重命名',
+      '顶栏页签切换图解，双击页签名（或选中后按 F2）可重命名',
       '图解画完点页签右侧「锁定」，防止误改；锁定的图解要先解锁才能删除',
       '「文件」里可打开存档，也可导出文字解 / JSON / SVG / 整包 zip',
       '图稿自动保存在浏览器本地，换机器用存档 zip',
@@ -79,7 +80,8 @@ const SECTIONS = [
 <template>
   <div v-if="ui.helpOpen" class="fixed inset-0 bg-black/30 items-center justify-center"
     style="z-index:50;display:flex" @mousedown.self="close">
-    <div class="modal-shell help-shell w-[720px] max-w-[calc(100vw-32px)]">
+    <div class="modal-shell help-shell w-[720px] max-w-[calc(100vw-32px)]"
+      role="dialog" aria-modal="true" aria-label="操作说明" data-modal>
       <div class="modal-head">
         <h2 class="modal-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"

@@ -5,7 +5,7 @@ import {
   fits, toggleHighlight, getSym, pasteAt, clipSel, clipBoard, contentRev,
 } from '../store.js';
 import { ui, appPrompt } from '../ui.js';
-import { CELL, symDataUrl, symbolInnerMarkup } from '../util.js';
+import { CELL, PAD_L, PAD_R, PAD_T, PAD_B, symDataUrl, symbolInnerMarkup } from '../util.js';
 import { createTileLayer } from '../tileLayer.js';
 
 const svgEl = ref(null);
@@ -21,7 +21,7 @@ let lastPaint = null;    // 本次笔画最后一次落格：同格内的高频 
 let pdCell = null;       // pointerdown 已 applyAt 的 {c,r,tool}：click 不再重复落格
 let svgRect = null;      // #chart 的屏幕矩形缓存：pointermove 高频换算不做 getScreenCTM
 
-const ghost = reactive({ visible: false, x: 0, y: 0, w: 1, h: 1, color: '#3b82f6' });
+const ghost = reactive({ visible: false, x: 0, y: 0, w: 1, h: 1, kind: 'valid' });
 
 const rowTopY = r => state.rows - r;
 
@@ -61,7 +61,6 @@ watchEffect(() => {
 });
 
 /* viewBox 与 CSS 宽高必须严格一致，否则 preserveAspectRatio 会留黑边导致点击错位 */
-const PAD_L = 1.3, PAD_R = 1.3, PAD_T = 0.7, PAD_B = 1.0; // 左侧/右侧行号区、上方、下方列号区
 const viewBox = computed(() =>
   `${-PAD_L} ${-PAD_T} ${state.cols + PAD_L + PAD_R} ${state.rows + PAD_T + PAD_B}`);
 const boxStyle = computed(() => ({
@@ -172,7 +171,15 @@ if (typeof window !== 'undefined') {
   };
 }
 
+/* 行列号字号随缩放反向补偿：缩放只改格子像素，不再把字号一起缩小到看不清。
+   格子小于 10px 时整组隐藏，避免数字互相压住。 */
+const zoomCellPx = computed(() => CELL * state.zoom);
+const labelsVisible = computed(() => zoomCellPx.value >= 10);
+const rowNumFs = computed(() => Math.min(0.9, 12 / zoomCellPx.value));
+const colNumFs = computed(() => Math.min(0.75, 11 / zoomCellPx.value));
+
 const rowNumbers = computed(() => {
+  if (!labelsVisible.value) return [];
   const row1Right = state.rowStartSide !== 'left';
   const arr = [];
   for (let r = vis.w0; r <= vis.w1; r++) { // 只渲染可视区行号（虚拟化）
@@ -340,20 +347,21 @@ function updateGhost(cell) {
     ghost.x = cell.c;
     ghost.y = state.rows - cell.r - h + 1;
     ghost.w = w; ghost.h = h;
-    ghost.color = cb ? '#0d9488' : '#ef4444';
+    ghost.kind = cb ? 'paste' : 'invalid';
   } else if (state.tool === 'border') {
     const c0 = borderDrag ? borderDrag.c0 : cell.c, r0 = borderDrag ? borderDrag.r0 : cell.r;
     ghost.x = Math.min(c0, cell.c);
     ghost.y = rowTopY(Math.max(r0, cell.r));
     ghost.w = Math.abs(cell.c - c0) + 1;
     ghost.h = Math.abs(cell.r - r0) + 1;
-    ghost.color = '#d97706';
+    ghost.kind = 'border';
   } else {
     const fp = footprintAt(cell.c, cell.r);
     ghost.x = cell.c;
     ghost.y = state.rows - cell.r - fp.h + 1;
     ghost.w = fp.w; ghost.h = fp.h;
-    ghost.color = (state.tool === 'erase' || !fits(cell.c, cell.r, fp.w, fp.h)) ? '#ef4444' : '#3b82f6';
+    /* 失效（越界）用红 + 叠加叉线双重提示，不单靠颜色 */
+    ghost.kind = state.tool === 'erase' ? 'erase' : (fits(cell.c, cell.r, fp.w, fp.h) ? 'valid' : 'invalid');
   }
   ghost.visible = true;
 }
@@ -436,7 +444,7 @@ onUnmounted(() => {
       <g id="hlLayer" pointer-events="none">
         <rect v-if="state.highlight"
           x="-1.15" :y="rowTopY(state.highlight)" :width="state.cols + 2.3" height="1"
-          fill="#fbbf24" opacity="0.28"/>
+          opacity="0.28"/>
       </g>
 
       <!-- 网格背景：透明矩形接收整个网格区的指针事件，用于坐标换算命中 -->
@@ -445,16 +453,17 @@ onUnmounted(() => {
       <!-- 行号：第 1 行位置由 rowStartSide 决定，其后逐行左右交替 -->
       <text v-for="rn in rowNumbers" :key="'rn' + rn.r"
         class="rownum" :data-r="rn.r" :x="rn.x" :y="rn.y"
-        text-anchor="middle" dominant-baseline="central" font-size="0.42"
-        :fill="state.highlight === rn.r ? '#b45309' : '#64748b'"
+        text-anchor="middle" dominant-baseline="central" :font-size="rowNumFs"
+        :style="{ fill: state.highlight === rn.r ? 'var(--cv-highlight-ink)' : 'var(--cv-label)' }"
         :font-weight="state.highlight === rn.r ? 'bold' : 'normal'">{{ rn.r }}</text>
 
       <!-- 列号热区 + 手动标注 -->
       <template v-for="ch in colHits" :key="'ch' + ch.c">
-        <rect class="colhit" :data-c="ch.c" :x="ch.c" :y="state.rows" width="1" height="0.9" fill="transparent"/>
-        <text v-if="ch.label !== ''" class="colnum" :data-c="ch.c"
+        <rect v-if="labelsVisible" class="colhit" :data-c="ch.c" :x="ch.c" :y="state.rows"
+          width="1" height="0.9" fill="transparent"/>
+        <text v-if="ch.label !== '' && labelsVisible" class="colnum" :data-c="ch.c"
           :x="ch.c + 0.5" :y="state.rows + 0.42"
-          text-anchor="middle" dominant-baseline="central" font-size="0.3" fill="#64748b">{{ ch.label }}</text>
+          text-anchor="middle" dominant-baseline="central" :font-size="colNumFs">{{ ch.label }}</text>
       </template>
     </svg>
 
@@ -494,20 +503,28 @@ onUnmounted(() => {
         fill="#3b82f6" fill-opacity="0.08" stroke="#3b82f6"
         stroke-width="0.06" stroke-dasharray="0.15 0.1"/>
       <!-- 框选尺寸提示：当前选中 N 行 × M 列 -->
-      <text v-if="clipSel.rect" pointer-events="none"
+      <text v-if="clipSel.rect" id="selSize" pointer-events="none"
         :x="Math.min(clipSel.rect.c0, clipSel.rect.c1) + 0.05"
         :y="rowTopY(Math.max(clipSel.rect.r0, clipSel.rect.r1)) - 0.12"
-        font-size="0.36" font-weight="bold" fill="#1d4ed8"
+        font-size="0.36" font-weight="bold"
         stroke="#fff" stroke-width="0.12" style="paint-order: stroke">
         {{ Math.abs(clipSel.rect.r1 - clipSel.rect.r0) + 1 }}行 × {{ Math.abs(clipSel.rect.c1 - clipSel.rect.c0) + 1 }}列
       </text>
 
-      <!-- 放置预览 ghost -->
+      <!-- 放置预览 ghost：颜色走主题 token；越界时再叠加叉线，不只靠颜色区分 -->
       <rect id="ghost" pointer-events="none"
         :x="ghost.x" :y="ghost.y" :width="ghost.w" :height="ghost.h"
-        :fill="ghost.color" opacity="0.15" :stroke="ghost.color"
-        stroke-width="0.04" stroke-dasharray="0.12 0.08"
-        :style="{ display: ghost.visible ? '' : 'none' }"/>
+        opacity="0.15" stroke-width="0.04" stroke-dasharray="0.12 0.08"
+        :style="{
+          display: ghost.visible ? '' : 'none',
+          fill: 'var(--cv-' + ghost.kind + ')',
+          stroke: 'var(--cv-' + ghost.kind + ')',
+        }"/>
+      <g v-if="ghost.visible && ghost.kind === 'invalid'" pointer-events="none"
+        fill="none" stroke-width="0.05" :style="{ stroke: 'var(--cv-invalid)' }">
+        <line :x1="ghost.x" :y1="ghost.y" :x2="ghost.x + ghost.w" :y2="ghost.y + ghost.h"/>
+        <line :x1="ghost.x + ghost.w" :y1="ghost.y" :x2="ghost.x" :y2="ghost.y + ghost.h"/>
+      </g>
 
       <!-- 粘贴预览内容：照实画出（镜像后的）复制块符号/边框/标注，方便确认落位 -->
       <g v-if="pasteGhost" id="pasteGhost" pointer-events="none" opacity="0.55">

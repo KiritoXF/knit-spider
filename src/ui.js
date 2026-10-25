@@ -19,10 +19,10 @@ export const ui = reactive({
   toasts: [],        // 轻提示队列 [{id,msg,tone}] tone: 'ok'|'warn'|'info'
 });
 
-/* ---- 轻提示 toast：右下角，默认 2.6s 自动消失；同文案同语气不叠加（刷新在屏时间）
+/* ---- 轻提示 toast：右下角，普通 3.6s、警告 5s 自动消失；同文案同语气不叠加（刷新在屏时间）
    ms 可自定义驻留时长（数据安全类警告用，给足够阅读时间） ---- */
 let toastSeq = 0;
-export function toast(msg, tone = 'info', ms = 2600) {
+export function toast(msg, tone = 'info', ms = tone === 'warn' ? 5000 : 3600) {
   const dup = ui.toasts.find(t => t.msg === msg && t.tone === tone);
   if (dup) {
     clearTimeout(dup._timer); // 已在屏：只重置消失倒计时，不重复弹
@@ -74,15 +74,26 @@ export function dlgSettle(v) {
   if (r) r(v);
 }
 
-/* 重活（切换/新建图解会触发大面积 SVG 重渲染）延后到遮罩画完再执行：
-   先显示 loading → 30ms 后真正切换 → 渲染完成后关闭遮罩 */
+/* 是否有模态层打开：全局快捷键据此让路，避免在弹窗里误改画布 */
+export function isModalOpen() {
+  return !!(dlg.open || ui.loading || ui.textChartOpen || ui.editorOpen || ui.helpOpen ||
+    ui.symbolOpen || ui.changelogOpen || ui.newWorkOpen || ui.chartCodeOpen ||
+    ui.shapingOpen);
+}
+
+/* 重活（切换/新建图解会触发大面积 SVG 重渲染）先让遮罩真正画一帧，再执行：
+   nextTick 提交 DOM → rAF 出一帧 → setTimeout(0) 在绘制后跑重活 */
 export function withLoading(fn) {
   ui.loading = true;
-  setTimeout(() => {
-    try { fn(); } finally {
-      nextTick(() => { ui.loading = false; });
-    }
-  }, 30);
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        try { fn(); } finally {
+          nextTick(() => { ui.loading = false; });
+        }
+      }, 0);
+    });
+  });
 }
 
 export const ed = reactive({

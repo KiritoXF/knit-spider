@@ -188,7 +188,8 @@ onUnmounted(() => {
   <div v-if="ui.editorOpen" id="modal"
     class="fixed inset-0 bg-black/30 items-center justify-center open" style="z-index:50;display:flex"
     @mousedown.self="closeEditor()">
-    <div class="modal-shell w-[780px] max-h-[92vh] overflow-auto">
+    <div class="modal-shell w-[780px] max-h-[92vh] overflow-auto"
+      role="dialog" aria-modal="true" aria-label="自定义符号" data-modal>
       <div class="modal-head">
         <h2 class="modal-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -262,7 +263,7 @@ onUnmounted(() => {
                 :stroke="ed.drawing.color" :stroke-width="ed.drawing.w" stroke-linecap="round"/>
             </template>
           </svg>
-          <p class="text-[11px] text-gray-400 mt-1 w-[320px]">拖动画图元（吸附 1/4 格）；曲线：先拖出起止线，再点两下定弯曲点，右键取消未完成的曲线</p>
+          <p class="text-[12px] text-gray-500 mt-1 w-[320px]">拖动画图元（吸附 1/4 格）；曲线：先拖出起止线，再点两下定弯曲点，右键取消未完成的曲线</p>
         </div>
         <div class="flex-1 text-xs space-y-2">
           <div class="flex items-center gap-1">
