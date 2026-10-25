@@ -1,6 +1,7 @@
 {
   "name": "knitchart",
   "private": true,
+  "license": "CC-BY-NC-4.0",
   "version": "0.2.11",
   "type": "module",
   "scripts": {

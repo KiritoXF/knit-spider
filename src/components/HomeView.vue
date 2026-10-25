@@ -128,9 +128,6 @@ function fmtTime(t) {
     <footer class="home-foot">
       <span>© 2026 蜘蛛织毛线 ·
         <a href="https://github.com/KiritoXF/knit-spider" target="_blank" rel="noopener noreferrer">KiritoXF</a></span>
-      <span class="home-foot-sep" aria-hidden="true">·</span>
-      <span>小红书：
-        <a href="https://www.xiaohongshu.com/user/profile/60e969a4000000000101e9e0" target="_blank" rel="noopener noreferrer">momo</a></span>
     </footer>
   </div>
 </template>
